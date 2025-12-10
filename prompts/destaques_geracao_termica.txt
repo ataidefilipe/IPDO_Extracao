@@ -1,0 +1,34 @@
+Você é um especialista em relatórios do ONS.
+
+A data do relatório é: {{DATA_RELATORIO}}
+
+O texto completo extraído do PDF é o seguinte:
+
+{{TEXTO_EXTRAIDO}}
+
+Extraia APENAS os "Destaques de Geração Térmica" (ou "Desvios de Geração Térmica") deste texto.
+
+Retorne SOMENTE JSON válido:
+
+{
+    "data": "{{DATA_RELATORIO}}",
+    "destaques_geracao_termica": [
+        {
+            "unidade_geradora": "Angra I (Eletronuclear)",
+            "desvio": "Acima do programado",
+            "descricao": "A unidade gerou acima do valor programado durante todo o dia para adequação ao processo industrial interno da planta."
+        },
+        {
+            "unidade_geradora": "Marlim Azul (Marlim Azul Energia S.A.)",
+            "desvio": "Abaixo do programado",
+            "descricao": "A unidade não gerou a partir das 07h28 devido ao desligamento automático seguido da indisponibilidade da usina."
+        }
+    ]
+}
+
+Regras:
+- Liste TODAS as unidades com desvio mencionado na seção térmica
+- Formato exato do nome: "Nome da Usina (Concessionária)"
+- Desvio: use exatamente "Acima do programado", "Abaixo do programado" ou "Sem desvio"
+- Descrições: mantenha fiéis e concisas do texto
+- Se não houver destaques térmicos, retorne array vazio []
