@@ -1,2 +1,5 @@
 *.json
 *.env
+*.db
+*.pdf
+gerar_documentacao.py
