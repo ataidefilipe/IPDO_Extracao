@@ -39,3 +39,21 @@ def chamar_gpt(prompt: str, max_retries=3) -> dict:
             log(f"Erro na API (tentativa {tentativa+1}): {e}")
             time.sleep(3)
     raise Exception("Falha após várias tentativas")
+
+def chamar_gpt_em_chunks(prompt_template: str, chunks: list) -> list:
+    """
+    Envia múltiplos prompts ao GPT, um por chunk.
+    Cada resposta será tratada como parte do JSON final.
+    """
+    respostas = []
+
+    for idx, texto in enumerate(chunks, 1):
+        log(f"   → Enviando chunk {idx}/{len(chunks)} ao GPT...")
+
+        prompt = prompt_template.replace("{{TEXTO_EXTRAIDO}}", texto)
+
+        resultado = chamar_gpt(prompt)
+        respostas.append(resultado)
+
+    return respostas
+

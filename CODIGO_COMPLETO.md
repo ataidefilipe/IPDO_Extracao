@@ -1,8 +1,8 @@
 # Código Completo do Projeto
 
-*Gerado automaticamente em 11/12/2025 às 09:30*
+*Gerado automaticamente em 12/12/2025 às 10:29*
 
-Total de arquivos: 9
+Total de arquivos: 15
 
 ---
 
@@ -25,6 +25,92 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 ---
 
+## Arquivo: `core/chunking.py`
+
+```python
+# core/chunking.py
+"""
+Funções utilitárias para divisão de texto (chunking) com limite de tokens.
+
+O objetivo é impedir que textos extraídos do PDF ultrapassem o limite de 
+contexto do modelo GPT, evitando erros 400 e análises incompletas.
+"""
+
+import re
+from utils.logger import log
+
+# Estimativa média: 1 token ≈ 4 caracteres (para modelos GPT modernos)
+TOKEN_RATIO = 4
+
+
+def estimate_tokens(text: str) -> int:
+    """Estima número de tokens baseado no tamanho do texto."""
+    return max(1, len(text) // TOKEN_RATIO)
+
+
+def split_text_by_tokens(text: str, max_tokens: int = 6000) -> list:
+    """
+    Divide o texto em chunks respeitando limite de tokens aproximado.
+
+    - Nunca quebra no meio de parágrafos
+    - Se chunk único exceder max_tokens → quebra em sentenças
+    - Retorna lista de chunks prontos para envio ao GPT
+    """
+
+    total_tokens = estimate_tokens(text)
+    log(f"   Texto possui aproximadamente {total_tokens} tokens")
+
+    if total_tokens <= max_tokens:
+        log("   Chunking NÃO necessário → texto cabe em um único prompt")
+        return [text]
+
+    log("   Chunking necessário → dividindo o texto...")
+
+    # Primeira divisão por parágrafos
+    paragraphs = re.split(r"\n\s*\n", text)
+    chunks = []
+    current_chunk = ""
+
+    for para in paragraphs:
+        candidate = current_chunk + "\n\n" + para if current_chunk else para
+
+        if estimate_tokens(candidate) < max_tokens:
+            current_chunk = candidate
+        else:
+            # Chunk cheio → salva e começa outro
+            chunks.append(current_chunk.strip())
+            current_chunk = para
+
+    # Último pedaço
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+
+    # Garantia de que nenhum chunk ultrapassa o máximo
+    final_chunks = []
+    for c in chunks:
+        if estimate_tokens(c) <= max_tokens:
+            final_chunks.append(c)
+        else:
+            # Se um parágrafo gigante excede, quebrar em sentenças
+            log("   Parágrafo muito grande → realizando divisão por sentenças...")
+            sentences = re.split(r"(?<=[.!?])\s+", c)
+            sub_chunk = ""
+            for s in sentences:
+                candidate = sub_chunk + " " + s if sub_chunk else s
+                if estimate_tokens(candidate) < max_tokens:
+                    sub_chunk = candidate
+                else:
+                    final_chunks.append(sub_chunk.strip())
+                    sub_chunk = s
+            if sub_chunk:
+                final_chunks.append(sub_chunk.strip())
+
+    log(f"   Chunking finalizado → {len(final_chunks)} chunk(s) gerados")
+    return final_chunks
+```
+
+---
+
 ## Arquivo: `core/date_parser.py`
 
 ```python
@@ -37,6 +123,77 @@ def extrair_data_do_nome(nome_arquivo: str) -> str:
         raise ValueError(f"Data não encontrada no nome: {nome_arquivo}")
     ano, mes, dia = match.groups()
     return f"{ano}-{int(mes):02d}-{int(dia):02d}"
+```
+
+---
+
+## Arquivo: `core/extract_sections.py`
+
+```python
+import re
+from utils.logger import log
+
+
+def extrair_trecho(texto: str, inicio: str, fim: str) -> str:
+    """
+    Extrai o texto entre marcadores específicos.
+    Se não encontrar, retorna string vazia.
+    """
+    pattern = re.compile(
+        rf"{re.escape(inicio)}(.*?){re.escape(fim)}",
+        flags=re.DOTALL | re.IGNORECASE
+    )
+    match = pattern.search(texto)
+    return match.group(1).strip() if match else ""
+
+
+def extrair_operacao(texto: str) -> str:
+    """
+    Extrai seção 4 - Destaques da Operação até antes de 5 - Gerações
+    """
+    log("   → Extraindo seção: Destaques da Operação")
+    return extrair_trecho(texto, "4 - Destaques da Operação", "5 - Gerações")
+
+
+def extrair_termica(texto: str) -> str:
+    """
+    Extrai seção 6 - Destaques da Geração Térmica até antes do 7 - Demandas Máximas
+    """
+    log("   → Extraindo seção: Destaques da Geração Térmica")
+    return extrair_trecho(texto, "6 - Destaques da Geração Térmica", "7 - Demandas Máximas")
+```
+
+---
+
+## Arquivo: `core/json_merge.py`
+
+```python
+# core/json_merge.py
+
+def merge_respostas(parciais: list, tipo: str) -> dict:
+    """
+    Junta respostas parciais do GPT em um único JSON final.
+    Exemplo:
+      - tipo == "operacao" → une listas dentro de "destaques_operacao"
+      - tipo == "termica"  → une listas dentro de "destaques_geracao_termica"
+    """
+
+    if not parciais:
+        raise ValueError("Lista de respostas parciais está vazia")
+
+    final = parciais[0].copy()  # copia campos base (ex: metadata futura)
+    
+    if tipo == "operacao":
+        final["destaques_operacao"] = []
+        for p in parciais:
+            final["destaques_operacao"] += p.get("destaques_operacao", [])
+
+    elif tipo == "termica":
+        final["destaques_geracao_termica"] = []
+        for p in parciais:
+            final["destaques_geracao_termica"] += p.get("destaques_geracao_termica", [])
+
+    return final
 ```
 
 ---
@@ -85,6 +242,23 @@ def chamar_gpt(prompt: str, max_retries=3) -> dict:
             log(f"Erro na API (tentativa {tentativa+1}): {e}")
             time.sleep(3)
     raise Exception("Falha após várias tentativas")
+
+def chamar_gpt_em_chunks(prompt_template: str, chunks: list) -> list:
+    """
+    Envia múltiplos prompts ao GPT, um por chunk.
+    Cada resposta será tratada como parte do JSON final.
+    """
+    respostas = []
+
+    for idx, texto in enumerate(chunks, 1):
+        log(f"   → Enviando chunk {idx}/{len(chunks)} ao GPT...")
+
+        prompt = prompt_template.replace("{{TEXTO_EXTRAIDO}}", texto)
+
+        resultado = chamar_gpt(prompt)
+        respostas.append(resultado)
+
+    return respostas
 ```
 
 ---
@@ -104,6 +278,64 @@ def extrair_texto(pdf_path: Path) -> str:
             if t:
                 texto.append(t)
     return "\n".join(texto)
+```
+
+---
+
+## Arquivo: `core/pdf_extractor_v2.py`
+
+```python
+# core/pdf_extractor_v2.py
+"""
+Módulo de extração de texto usando pypdfium2 (compatível com todas as versões atuais).
+"""
+
+from pathlib import Path
+import pypdfium2 as pdfium
+import re
+from utils.logger import log
+
+
+def _clean_text(text: str) -> str:
+    """Normaliza texto extraído para reduzir ruído que atrapalha o GPT."""
+    text = text.replace("\u200b", "").replace("\ufeff", "")
+    text = re.sub(r"[ ]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ ]+\n", "\n", text)
+    return text.strip()
+
+
+def extrair_texto(pdf_path: Path) -> str:
+    """
+    Extrai texto de todas as páginas do PDF usando pypdfium2.
+    Compatível com versões antigas e recentes da biblioteca.
+    """
+
+    log(f"   Iniciando extração pypdfium2 → {pdf_path.name}")
+
+    try:
+        pdf = pdfium.PdfDocument(str(pdf_path))
+    except Exception as e:
+        raise RuntimeError(f"Falha ao abrir PDF '{pdf_path}': {e}")
+
+    paginas = len(pdf)  # ← número de páginas correto nessa versão
+    texto_final = []
+
+    for page_number in range(paginas):
+        try:
+            page = pdf[page_number]  # ← forma correta de acessar página
+            textpage = page.get_textpage()
+            texto = textpage.get_text_range()
+            texto_final.append(texto)
+        except Exception as e:
+            log(f"   [WARN] Falha ao extrair página {page_number+1}/{paginas}: {e}")
+            texto_final.append(f"\n[Página {page_number+1} não pôde ser extraída]\n")
+
+    texto = "\n".join(texto_final)
+    texto = _clean_text(texto)
+
+    log(f"   Extração concluída ({paginas} páginas)")
+    return texto
 ```
 
 ---
@@ -266,26 +498,37 @@ def salvar_destaques_termica(data: str, itens: list):
 # main.py
 from pathlib import Path
 import hashlib
+import json
+
 from config.settings import PDFS_DIR, OUTPUT_DIR, PROMPTS_DIR
-from core.pdf_extractor import extrair_texto
+
+from core.pdf_extractor_v2 import extrair_texto
 from core.date_parser import extrair_data_do_nome
 from core.openai_client import chamar_gpt
+from core.extract_sections import extrair_operacao, extrair_termica
+
 from database.models import criar_tabelas
 from database.repository import salvar_destaques_operacao, salvar_destaques_termica
+
 from utils.logger import log
-import json
+
+
+# ---------------------------------------------------------
+# Funções de suporte
+# ---------------------------------------------------------
 
 def calcular_hash_pdf(pdf_path: Path) -> str:
     """Calcula hash do PDF para detectar mudanças"""
     with open(pdf_path, "rb") as f:
         return hashlib.md5(f.read()).hexdigest()
 
+
 def json_existe_e_atual(pdf_path: Path, tipo: str) -> bool:
     """Verifica se o JSON já existe e se o PDF não mudou desde então"""
     json_path = OUTPUT_DIR / f"{pdf_path.stem}_{tipo}.json"
     if not json_path.exists():
         return False
-    
+
     try:
         dados_json = json.loads(json_path.read_text(encoding="utf-8"))
         hash_salvo = dados_json.get("_metadata", {}).get("pdf_hash")
@@ -294,84 +537,129 @@ def json_existe_e_atual(pdf_path: Path, tipo: str) -> bool:
     except:
         return False
 
+
 def salvar_json_com_metadata(pdf_path: Path, tipo: str, dados: dict):
     """Salva JSON com hash do PDF pra controle futuro"""
     dados["_metadata"] = {
         "pdf_hash": calcular_hash_pdf(pdf_path),
-        "processado_em": Path().cwd().name,  # ou datetime
+        "processado_em": Path().cwd().name,
         "fonte": pdf_path.name
     }
     json_path = OUTPUT_DIR / f"{pdf_path.stem}_{tipo}.json"
     json_path.write_text(json.dumps(dados, indent=4, ensure_ascii=False), encoding="utf-8")
 
-def carregar_prompt(nome: str, data: str, texto: str) -> str:
-    template = (PROMPTS_DIR / nome).read_text(encoding="utf-8")
-    return template.replace("{{DATA_RELATORIO}}", data).replace("{{TEXTO_EXTRAIDO}}", texto)
+
+def carregar_prompt_base(nome_prompt: str, data: str) -> str:
+    """Carrega o template sem texto ainda"""
+    template = (PROMPTS_DIR / nome_prompt).read_text(encoding="utf-8")
+    return template.replace("{{DATA_RELATORIO}}", data)
+
+
+# ---------------------------------------------------------
+# Processamento principal de cada PDF
+# ---------------------------------------------------------
 
 def processar_arquivo(pdf_path: Path):
     log(f"Processando → {pdf_path.name}")
 
+    # -------------------------
+    # 1. Extrair data
+    # -------------------------
     try:
         data = extrair_data_do_nome(pdf_path.name)
     except Exception as e:
         log(f"   Erro ao extrair data do nome: {e}")
         return
 
-    # Verifica se JÁ TEM OS DOIS JSONS e o PDF não mudou
+    # -------------------------
+    # 2. Cache – evitar GPT
+    # -------------------------
     if json_existe_e_atual(pdf_path, "operacao") and json_existe_e_atual(pdf_path, "termica"):
-        log(f"   Arquivos já processados e atualizados → pulando GPT (cache hit)")
-        
-        # Mesmo assim, salva no banco (caso tenha rodado antes sem banco)
+        log(f"   Cache HIT → JSONs já atualizados, pulando GPT")
+
         try:
-            for tipo, repo_func in [("operacao", salvar_destaques_operacao), ("termica", salvar_destaques_termica)]:
+            for tipo, repo_func in [
+                ("operacao", salvar_destaques_operacao),
+                ("termica", salvar_destaques_termica)
+            ]:
                 json_path = OUTPUT_DIR / f"{pdf_path.stem}_{tipo}.json"
                 dados = json.loads(json_path.read_text(encoding="utf-8"))
+
                 if tipo == "operacao":
                     repo_func(data, dados.get("destaques_operacao", []))
                 else:
                     repo_func(data, dados.get("destaques_geracao_termica", []))
-            log(f"   Dados do cache carregados no banco para {data}")
+
+            log(f"   Dados carregados do cache para o banco")
         except Exception as e:
             log(f"   Erro ao carregar cache no banco: {e}")
-        log(f"   Erro ao carregar cache no banco: {e}")
+
         return
 
-    # Se chegou aqui → precisa rodar GPT
-    log(f"   PDF novo ou alterado → enviando para GPT-4o...")
+    # -------------------------
+    # 3. Extrair TEXTO COMPLETO
+    # -------------------------
+    log("   Extraindo texto bruto do PDF...")
     texto = extrair_texto(pdf_path)
 
+    # -------------------------
+    # 4. Definição de tarefas (operacao / termica)
+    # -------------------------
     tarefas = [
-        ("destaques_operacao.txt",  "operacao", salvar_destaques_operacao),
-        ("destaques_geracao_termica.txt", "termica", salvar_destaques_termica),
+        ("destaques_operacao.txt",  "operacao", extrair_operacao, salvar_destaques_operacao),
+        ("destaques_geracao_termica.txt", "termica", extrair_termica, salvar_destaques_termica),
     ]
 
-    for arquivo_prompt, tipo, funcao_salvar in tarefas: 
+    # -------------------------
+    # 5. Rodar cada tipo de destaque
+    # -------------------------
+    for nome_prompt, tipo, func_extrair_trecho, func_salvar in tarefas:
+
         if json_existe_e_atual(pdf_path, tipo):
-            log(f"   {tipo}.json já existe e válido → pulando")
+            log(f"   {tipo}.json já válido → pulando")
             continue
 
-        log(f"   Extraindo {tipo} com GPT...")
-        prompt = carregar_prompt(arquivo_prompt, data, texto)
+        log(f"   → Preparando extração de {tipo}...")
+
+        # 5.1 Extrair apenas o trecho relevante
+        trecho = func_extrair_trecho(texto)
+
+        if not trecho:
+            log(f"   [WARN] Não foi possível localizar a seção relevante para {tipo}.")
+            continue
+
+        # 5.2 Carregar prompt base (sem o texto ainda)
+        prompt = (PROMPTS_DIR / nome_prompt).read_text(encoding="utf-8")
+        prompt = prompt.replace("{{DATA_RELATORIO}}", data)
+        prompt = prompt.replace("{{TEXTO_EXTRAIDO}}", trecho)
+
         try:
+            # 5.3 Chamada simples ao GPT (sem chunking)
             resultado = chamar_gpt(prompt)
             resultado["data"] = data
 
-            # Salva JSON com hash
+            # 5.4 Salvar o JSON com metadata
             salvar_json_com_metadata(pdf_path, tipo, resultado)
 
-            # Salva no banco
+            # 5.5 Salvar no banco
             if tipo == "operacao":
-                funcao_salvar(data, resultado.get("destaques_operacao", []))
+                func_salvar(data, resultado.get("destaques_operacao", []))
             else:
-                funcao_salvar(data, resultado.get("destaques_geracao_termica", []))
+                func_salvar(data, resultado.get("destaques_geracao_termica", []))
 
-            log(f"   {tipo} → salvo (GPT)")
+            log(f"   {tipo} → salvo com sucesso")
 
         except Exception as e:
-            log(f"   FALHA ao extrair {tipo}: {e}")
+            log(f"   ERRO ao extrair {tipo}: {e}")
+
+
+# ---------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------
 
 def main():
-    log("Iniciando sistema de extração ONS (com cache inteligente)")
+    log("Iniciando sistema de extração ONS (com cache e corte de seções)")
+
     criar_tabelas()
 
     pdfs = sorted(PDFS_DIR.glob("*.pdf"))
@@ -379,15 +667,69 @@ def main():
         log("Nenhum PDF encontrado em pdfs/")
         return
 
-    log(f"{len(pdfs)} PDF(s) encontrado(s). Verificando cache...")
+    log(f"{len(pdfs)} PDF(s) encontrado(s). Iniciando processamento...")
 
     for pdf in pdfs:
         processar_arquivo(pdf)
 
-    log("Concluído! Tudo atualizado com cache inteligente")
+    log("Concluído! Tudo atualizado com sucesso.")
+
 
 if __name__ == "__main__":
     main()
+```
+
+---
+
+## Arquivo: `tests/benchmark_pdf_extract.py`
+
+```python
+from core.pdf_extractor_v2 import extrair_texto
+from time import time
+from pathlib import Path
+
+def test_benchmark_extraction_speed():
+    pdf = Path("tests/pdfs/exemplo1.pdf")
+    t0 = time()
+    extrair_texto(pdf)
+    t1 = time()
+
+    assert (t1 - t0) < 1.5  # tempo aceitável para PDFs típicos do IPDO
+```
+
+---
+
+## Arquivo: `tests/test_pdf_extractor_v2.py`
+
+```python
+from core.pdf_extractor_v2 import extrair_texto
+from pathlib import Path
+
+def test_extração_pdf_simples():
+    pdf = Path("tests/pdfs/exemplo1.pdf")
+    texto = extrair_texto(pdf)
+
+    assert isinstance(texto, str)
+    assert len(texto) > 10  # texto mínimo
+    assert "IPDO" in texto or len(texto) > 50
+
+
+def test_extração_pdf_multiplas_paginas():
+    pdf = Path("tests/pdfs/exemplo2.pdf")
+    texto = extrair_texto(pdf)
+
+    assert "\n" in texto  # mais de uma página deve gerar contatos
+    assert len(texto.splitlines()) > 5
+
+
+def test_pdf_corrompido_retornar_erro():
+    pdf = Path("tests/pdfs/corrompido.pdf")
+
+    try:
+        extrair_texto(pdf)
+        assert False, "Era esperado erro ao abrir PDF corrompido"
+    except RuntimeError:
+        assert True
 ```
 
 ---
