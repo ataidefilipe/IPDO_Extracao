@@ -123,7 +123,7 @@
 
 ---
 
-## **US05 — Evitar destruição acidental do banco SQLite**
+## **US05 — Evitar destruição acidental do banco SQLite** - ok
 
 **Descrição:** Como desenvolvedor, quero evitar que o banco seja apagado a cada execução, preservando histórico.
 

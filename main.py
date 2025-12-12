@@ -10,7 +10,7 @@ from core.date_parser import extrair_data_do_nome
 from core.gpt_runner import processar_trecho_com_gpt
 from core.extract_sections import extrair_operacao, extrair_termica
 
-from database.models import criar_tabelas
+from database.init_db import init_db
 from database.repository import salvar_destaques_operacao, salvar_destaques_termica
 
 from utils.logger import log
@@ -163,7 +163,7 @@ def processar_arquivo(pdf_path: Path):
 def main():
     log("Iniciando sistema de extração ONS (com cache e corte de seções)")
 
-    criar_tabelas()
+    init_db()
 
     pdfs = sorted(PDFS_DIR.glob("*.pdf"))
     if not pdfs:
