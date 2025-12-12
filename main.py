@@ -7,7 +7,7 @@ from config.settings import PDFS_DIR, OUTPUT_DIR, PROMPTS_DIR
 
 from core.pdf_extractor_v2 import extrair_texto
 from core.date_parser import extrair_data_do_nome
-from core.openai_client import chamar_gpt
+from core.gpt_runner import processar_trecho_com_gpt
 from core.extract_sections import extrair_operacao, extrair_termica
 
 from database.models import criar_tabelas
@@ -138,7 +138,7 @@ def processar_arquivo(pdf_path: Path):
 
         try:
             # 5.3 Chamada simples ao GPT (sem chunking)
-            resultado = chamar_gpt(prompt)
+            resultado = processar_trecho_com_gpt(trecho, prompt)
             resultado["data"] = data
 
             # 5.4 Salvar o JSON com metadata

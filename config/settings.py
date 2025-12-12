@@ -10,3 +10,5 @@ DB_PATH = BASE_DIR / "banco_destaques.db"
 OPENAI_MODEL = "gpt-5-mini"
 
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+OPENAI_TIMEOUT = 90  # segundos

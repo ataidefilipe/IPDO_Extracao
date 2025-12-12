@@ -1,34 +1,38 @@
-Você é um especialista em relatórios do ONS.
+Você é um especialista em relatórios do ONS (IPDO).
 
-A data do relatório é: {{DATA_RELATORIO}}
+IMPORTANTE:
+- Responda EXCLUSIVAMENTE com JSON válido.
+- Não escreva explicações, comentários, markdown ou texto fora do JSON.
+- Não invente informações.
+- Extraia APENAS o que estiver explicitamente no texto fornecido.
 
-O texto completo extraído do PDF é o seguinte:
+Data do relatório: {{DATA_RELATORIO}}
 
+Texto analisado:
 {{TEXTO_EXTRAIDO}}
 
-Extraia APENAS os "Destaques de Geração Térmica" (ou "Desvios de Geração Térmica") deste texto.
+Tarefa:
+Extraia APENAS os "Destaques de Geração Térmica" ou "Desvios de Geração Térmica" presentes no texto.
 
-Retorne SOMENTE JSON válido:
+Formato de resposta OBRIGATÓRIO:
 
 {
-    "data": "{{DATA_RELATORIO}}",
-    "destaques_geracao_termica": [
-        {
-            "unidade_geradora": "Angra I (Eletronuclear)",
-            "desvio": "Acima do programado",
-            "descricao": "A unidade gerou acima do valor programado durante todo o dia para adequação ao processo industrial interno da planta."
-        },
-        {
-            "unidade_geradora": "Marlim Azul (Marlim Azul Energia S.A.)",
-            "desvio": "Abaixo do programado",
-            "descricao": "A unidade não gerou a partir das 07h28 devido ao desligamento automático seguido da indisponibilidade da usina."
-        }
-    ]
+  "data": "{{DATA_RELATORIO}}",
+  "destaques_geracao_termica": [
+    {
+      "unidade_geradora": "Nome da Usina (Concessionária)",
+      "desvio": "Acima do programado | Abaixo do programado | Sem desvio",
+      "descricao": "Descrição fiel e concisa do desvio"
+    }
+  ]
 }
 
-Regras:
-- Liste TODAS as unidades com desvio mencionado na seção térmica
-- Formato exato do nome: "Nome da Usina (Concessionária)"
-- Desvio: use exatamente "Acima do programado", "Abaixo do programado" ou "Sem desvio"
-- Descrições: mantenha fiéis e concisas do texto
-- Se não houver destaques térmicos, retorne array vazio []
+Regras obrigatórias:
+- Liste TODAS as unidades térmicas que apresentarem desvio.
+- Use exatamente os valores permitidos para o campo "desvio".
+- Não altere nomes das usinas.
+- Se NÃO houver destaques térmicos no texto, retorne:
+  {
+    "data": "{{DATA_RELATORIO}}",
+    "destaques_geracao_termica": []
+  }

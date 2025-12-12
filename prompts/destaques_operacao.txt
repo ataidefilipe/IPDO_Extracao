@@ -1,45 +1,55 @@
-Você é um especialista em relatórios do ONS (IPDO - Informe Preliminar Diário da Operação).
+Você é um especialista em relatórios do ONS (IPDO – Informe Preliminar Diário da Operação).
 
-A data do relatório é: {{DATA_RELATORIO}}
+IMPORTANTE:
+- Responda EXCLUSIVAMENTE com JSON válido.
+- Não escreva explicações, comentários, markdown ou texto fora do JSON.
+- Não invente informações.
+- Use SOMENTE dados explicitamente presentes no texto.
 
-O texto completo extraído do PDF é o seguinte:
+Data do relatório: {{DATA_RELATORIO}}
 
+Texto analisado:
 {{TEXTO_EXTRAIDO}}
 
-Extraia apenas os "Destaques da Operação" deste texto.
+Tarefa:
+Extraia APENAS os "Destaques da Operação" do texto.
 
-Retorne SOMENTE um JSON válido no seguinte formato exato (sem markdown, sem texto adicional):
+Formato de resposta OBRIGATÓRIO:
 
 {
-    "data": "{{DATA_RELATORIO}}",
-    "destaques_operacao": [
-        {
-            "submercado": "Sul",
-            "geracao": [
-                { "tipo": "Hidráulica", "status": "Inferior", "descricao": "..." },
-                { "tipo": "Térmica", "status": "Sem desvio", "descricao": "..." },
-                { "tipo": "Eólica", "status": "Sem desvio", "descricao": "..." },
-                { "tipo": "Solar Fotovoltaica", "status": "Sem desvio", "descricao": "..." }
-            ],
-            "carga": { "status": "Inferior", "descricao": "A carga foi inferior ao valor programado." },
-            "restricoes": [
-                { "inicio": "05:53", "fim": "15:23", "tipo": "Eólica", "redução_maxima": "363 MW", "descricao": "Houve restrição de geração eólica para controle da frequência do SIN." }
-            ],
-            "transferencia_energia": {
-                "submercado_origem": "Sul",
-                "submercado_destino": "Sudeste",
-                "status": "Inferior",
-                "descricao": "O intercâmbio de energia do submercado Sul foi inferior ao valor programado devido à geração hidráulica inferior ao valor previsto."
-            }
-        }
-    ]
+  "data": "{{DATA_RELATORIO}}",
+  "destaques_operacao": [
+    {
+      "submercado": "Sul | Sudeste | Nordeste | Norte",
+      "geracao": [
+        { "tipo": "Hidráulica | Térmica | Eólica | Solar Fotovoltaica | Nuclear", "status": "Acima | Inferior | Sem desvio", "descricao": "..." }
+      ],
+      "carga": { "status": "Acima | Inferior | Sem desvio", "descricao": "..." },
+      "restricoes": [],
+      "transferencia_energia": {
+        "submercado_origem": "...",
+        "submercado_destino": "...",
+        "status": "Acima | Inferior | Sem desvio",
+        "descricao": "..."
+      }
+    }
+  ]
 }
 
 Regras obrigatórias:
-- Use a data {{DATA_RELATORIO}} no campo "data"
-- Foque na seção "Destaques da Operação" (geralmente após o resumo inicial)
-- Inclua todos os submercados com destaque (Sul, Sudeste, Nordeste, Norte)
-- Para geração: liste só tipos com desvio; use "Sem desvio" se não mencionado
-- Se não houver restrições, use array vazio []
-- Se não houver intercâmbio, use status "Sem desvio" com descrição neutra
-- Mantenha descrições concisas, mas fiéis ao texto
+- Use exatamente a data {{DATA_RELATORIO}}.
+- Inclua TODOS os submercados citados no texto.
+- Para geração:
+  - Se houver desvio, descreva.
+  - Se NÃO houver menção, use "Sem desvio" com descrição curta e neutra.
+- Se não houver restrições, use array vazio [].
+- Se não houver intercâmbio, use:
+  {
+    "status": "Sem desvio",
+    "descricao": "Sem intercâmbio relevante no período."
+  }
+- Se a seção "Destaques da Operação" NÃO existir, retorne:
+  {
+    "data": "{{DATA_RELATORIO}}",
+    "destaques_operacao": []
+  }
