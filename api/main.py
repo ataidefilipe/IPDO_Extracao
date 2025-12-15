@@ -2,6 +2,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.routers import datas
+
 app = FastAPI(
     title="IPDO API",
     description="API de consulta aos destaques do IPDO (ONS)",
@@ -19,6 +21,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------
+# Routers
+# ---------------------------------------------------------
+
+app.include_router(datas.router)
 
 # ---------------------------------------------------------
 # Health-check
