@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import datas, operacao, geracao
+from api.routers import datas, operacao, geracao, termica
 
 app = FastAPI(
     title="IPDO API",
@@ -29,6 +29,7 @@ app.add_middleware(
 app.include_router(datas.router)
 app.include_router(operacao.router)
 app.include_router(geracao.router)
+app.include_router(termica.router)
 
 # ---------------------------------------------------------
 # Health-check

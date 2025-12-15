@@ -89,7 +89,7 @@ GET /datas
 
 ---
 
-## US03 — Endpoint: Destaques da Operação por data
+## US03 — Endpoint: Destaques da Operação por data - ok
 
 ### Endpoint
 
@@ -110,7 +110,7 @@ GET /operacao/{data}
 
 ---
 
-## US04 — Endpoint: Geração por tipo e submercado
+## US04 — Endpoint: Geração por tipo e submercado - ok
 
 ### Endpoint
 
@@ -132,7 +132,7 @@ GET /geracao
 
 ---
 
-## US05 — Endpoint: Destaques de Geração Térmica
+## US05 — Endpoint: Destaques de Geração Térmica - ok
 
 ### Endpoint
 
