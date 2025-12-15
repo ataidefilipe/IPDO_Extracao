@@ -12,6 +12,7 @@ def processar_trecho_com_gpt(trecho: str, prompt_base: str) -> dict:
     Fluxo para trechos textuais (operação e térmica).
     """
     prompt = prompt_base.replace("{{TEXTO_EXTRAIDO}}", trecho)
+    print("prompt:\n\n", prompt)
     return chamar_gpt_v2(prompt)
 
 
