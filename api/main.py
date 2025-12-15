@@ -6,7 +6,16 @@ from api.routers import datas, operacao, geracao, termica
 
 app = FastAPI(
     title="IPDO API",
-    description="API de consulta aos destaques do IPDO (ONS)",
+    description="""
+API de consulta aos destaques do IPDO (ONS).
+
+Esta API expõe dados já processados a partir dos relatórios IPDO,
+sem realizar extração de PDF ou chamadas a LLM.
+
+🔹 Escopo MVP  
+🔹 Somente leitura  
+🔹 Sem autenticação
+""",
     version="0.1.0 (MVP)"
 )
 
@@ -38,7 +47,9 @@ app.include_router(termica.router)
 @app.get("/health")
 def health_check():
     """
-    Endpoint simples para verificar se a API está no ar.
-    Não depende de banco nem de GPT.
+    Health-check da API.
+
+    Retorna apenas se o serviço está ativo.
+    Não acessa banco nem GPT.
     """
     return {"status": "ok"}

@@ -9,7 +9,10 @@ router = APIRouter(
     tags=["Operação"]
 )
 
-@router.get("/{data}")
+@router.get("/{data}",
+    summary="Destaques da operação por data",
+    description="Retorna carga, restrições, intercâmbio e geração por submercado."
+)
 def obter_destaques_operacao(
     data: str,
     db: sqlite3.Connection = Depends(get_db)

@@ -148,7 +148,7 @@ GET /termica/{data}
 
 ---
 
-## US06 — Documentação automática da API
+## US06 — Documentação automática da API - ok
 
 ### Descrição
 

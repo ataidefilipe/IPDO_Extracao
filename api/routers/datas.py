@@ -11,8 +11,11 @@ router = APIRouter(
 @router.get("")
 def listar_datas(db: sqlite3.Connection = Depends(get_db)):
     """
-    Lista as datas disponíveis no banco (ordenadas desc).
+    Retorna todas as datas disponíveis no banco de dados.
+
+    As datas são retornadas em ordem decrescente (mais recente primeiro).
     """
+
     cursor = db.cursor()
 
     cursor.execute("""
