@@ -1,8 +1,8 @@
 # Código Completo do Projeto
 
-*Gerado automaticamente em 12/12/2025 às 10:29*
+*Gerado automaticamente em 15/12/2025 às 16:22*
 
-Total de arquivos: 15
+Total de arquivos: 20
 
 ---
 
@@ -21,6 +21,8 @@ DB_PATH = BASE_DIR / "banco_destaques.db"
 OPENAI_MODEL = "gpt-5-mini"
 
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+OPENAI_TIMEOUT = 90  # segundos
 ```
 
 ---
@@ -165,6 +167,37 @@ def extrair_termica(texto: str) -> str:
 
 ---
 
+## Arquivo: `core/gpt_runner.py`
+
+```python
+# core/gpt_runner.py
+"""
+Camada de orquestração entre prompts, PDFs e OpenAI Responses API.
+"""
+
+from core.openai_client_v2 import chamar_gpt_v2
+from utils.logger import log
+
+
+def processar_trecho_com_gpt(trecho: str, prompt_base: str) -> dict:
+    """
+    Fluxo para trechos textuais (operação e térmica).
+    """
+    prompt = prompt_base.replace("{{TEXTO_EXTRAIDO}}", trecho)
+    print("prompt:\n\n", prompt)
+    return chamar_gpt_v2(prompt)
+
+
+def processar_pdf_com_prompt(pdf_bytes: bytes, prompt: str) -> dict:
+    """
+    Fluxo para PDFs completos (caso futuro de migração total).
+    """
+    log("   Enviando PDF completo como input multimodal...")
+    return chamar_gpt_v2(prompt, pdf_bytes=pdf_bytes)
+```
+
+---
+
 ## Arquivo: `core/json_merge.py`
 
 ```python
@@ -263,6 +296,111 @@ def chamar_gpt_em_chunks(prompt_template: str, chunks: list) -> list:
 
 ---
 
+## Arquivo: `core/openai_client_v2.py`
+
+```python
+# core/openai_client_v2.py
+"""
+Cliente OpenAI usando a Responses API (API moderna).
+Compatível com:
+- JSON-only via prompt
+- Retentativas
+- Timeout explícito
+- Envio opcional de PDF
+"""
+
+from openai import OpenAI
+from dotenv import load_dotenv
+import os
+import json
+import time
+from utils.logger import log
+from config.settings import OPENAI_MODEL, OPENAI_TIMEOUT
+
+load_dotenv()
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+def _extrair_texto_json(response) -> str:
+    """
+    Extrai texto consolidado da Responses API de forma segura.
+    """
+    # Forma mais estável e recomendada
+    if hasattr(response, "output_text") and response.output_text:
+        return response.output_text.strip()
+
+    # Fallback manual (caso API mude)
+    textos = []
+    for item in response.output:
+        if item["type"] == "message":
+            for c in item["content"]:
+                if c["type"] == "output_text":
+                    textos.append(c["text"])
+
+    return "\n".join(textos).strip()
+
+
+def chamar_gpt_v2(prompt: str, pdf_bytes: bytes = None, max_retries: int = 3) -> dict:
+    """
+    Chamada ao GPT usando Responses API.
+    Retorna dict (JSON parseado).
+    """
+
+    for tentativa in range(1, max_retries + 1):
+
+        log(f"   [GPT] Tentativa {tentativa}/{max_retries} usando Responses API...")
+
+        try:
+            # -----------------------------
+            # Montagem do input
+            # -----------------------------
+            if pdf_bytes:
+                input_payload = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": prompt},
+                            {
+                                "type": "input_file",
+                                "mime_type": "application/pdf",
+                                "data": pdf_bytes
+                            }
+                        ]
+                    }
+                ]
+            else:
+                input_payload = prompt
+
+            # -----------------------------
+            # Chamada OpenAI
+            # -----------------------------
+            response = client.responses.create(
+                model=OPENAI_MODEL,
+                input=input_payload,
+                timeout=OPENAI_TIMEOUT
+            )
+
+            texto = _extrair_texto_json(response)
+
+            if not texto:
+                raise ValueError("Resposta vazia da OpenAI Responses API.")
+
+            return json.loads(texto)
+
+        except json.JSONDecodeError:
+            log("   [ERRO] JSON inválido retornado. Retentando...")
+            time.sleep(2)
+
+        except Exception as e:
+            log(f"   [ERRO] OpenAI Responses API: {e}")
+            time.sleep(2)
+
+    raise RuntimeError("Falha após múltiplas tentativas com Responses API.")
+```
+
+---
+
 ## Arquivo: `core/pdf_extractor.py`
 
 ```python
@@ -340,26 +478,28 @@ def extrair_texto(pdf_path: Path) -> str:
 
 ---
 
-## Arquivo: `database/models.py`
+## Arquivo: `database/init_db.py`
 
 ```python
-# database/models.py
+# database/init_db.py
 import sqlite3
 from config.settings import DB_PATH
 from utils.logger import log
 
-def criar_tabelas():
+
+def init_db():
+    """
+    Inicializa o banco SQLite sem apagar dados existentes.
+    Cria tabelas apenas se não existirem.
+    """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # Apaga as tabelas antigas para recriar do zero limpo
-    cur.execute("DROP TABLE IF EXISTS destaques_operacao")
-    cur.execute("DROP TABLE IF EXISTS destaques_geracao")
-    cur.execute("DROP TABLE IF EXISTS destaques_geracao_termica")
-
-    # Tabela normalizada para todos os tipos de geração
-    cur.execute('''
-        CREATE TABLE destaques_geracao (
+    # -------------------------
+    # destaques_geracao
+    # -------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS destaques_geracao (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             data TEXT NOT NULL,
             submercado TEXT NOT NULL,
@@ -368,11 +508,13 @@ def criar_tabelas():
             descricao TEXT,
             UNIQUE(data, submercado, tipo_geracao)
         )
-    ''')
+    """)
 
-    # Tabela só com carga, restrições e intercâmbio
-    cur.execute('''
-        CREATE TABLE destaques_operacao (
+    # -------------------------
+    # destaques_operacao
+    # -------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS destaques_operacao (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             data TEXT NOT NULL,
             submercado TEXT NOT NULL,
@@ -385,11 +527,13 @@ def criar_tabelas():
             transferencia_descricao TEXT,
             UNIQUE(data, submercado)
         )
-    ''')
+    """)
 
-    # Térmica continua igual
-    cur.execute('''
-        CREATE TABLE destaques_geracao_termica (
+    # -------------------------
+    # destaques_geracao_termica
+    # -------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS destaques_geracao_termica (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             data TEXT NOT NULL,
             unidade_geradora TEXT NOT NULL,
@@ -397,11 +541,41 @@ def criar_tabelas():
             descricao TEXT NOT NULL,
             UNIQUE(data, unidade_geradora, descricao)
         )
-    ''')
+    """)
 
     conn.commit()
     conn.close()
-    log("Banco recriado com sucesso – modelo normalizado e escalável")
+
+    log("Banco inicializado com segurança (sem apagar dados)")
+```
+
+---
+
+## Arquivo: `database/models.py`
+
+```python
+# database/models.py
+import sqlite3
+from config.settings import DB_PATH
+from utils.logger import log
+
+
+def reset_db():
+    """
+    APAGA COMPLETAMENTE o banco de dados.
+    Use APENAS de forma manual.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("DROP TABLE IF EXISTS destaques_operacao")
+    cur.execute("DROP TABLE IF EXISTS destaques_geracao")
+    cur.execute("DROP TABLE IF EXISTS destaques_geracao_termica")
+
+    conn.commit()
+    conn.close()
+
+    log("⚠️ Banco RESETADO manualmente")
 ```
 
 ---
@@ -504,10 +678,10 @@ from config.settings import PDFS_DIR, OUTPUT_DIR, PROMPTS_DIR
 
 from core.pdf_extractor_v2 import extrair_texto
 from core.date_parser import extrair_data_do_nome
-from core.openai_client import chamar_gpt
+from core.gpt_runner import processar_trecho_com_gpt
 from core.extract_sections import extrair_operacao, extrair_termica
 
-from database.models import criar_tabelas
+from database.init_db import init_db
 from database.repository import salvar_destaques_operacao, salvar_destaques_termica
 
 from utils.logger import log
@@ -635,7 +809,7 @@ def processar_arquivo(pdf_path: Path):
 
         try:
             # 5.3 Chamada simples ao GPT (sem chunking)
-            resultado = chamar_gpt(prompt)
+            resultado = processar_trecho_com_gpt(trecho, prompt)
             resultado["data"] = data
 
             # 5.4 Salvar o JSON com metadata
@@ -660,7 +834,7 @@ def processar_arquivo(pdf_path: Path):
 def main():
     log("Iniciando sistema de extração ONS (com cache e corte de seções)")
 
-    criar_tabelas()
+    init_db()
 
     pdfs = sorted(PDFS_DIR.glob("*.pdf"))
     if not pdfs:
@@ -681,6 +855,28 @@ if __name__ == "__main__":
 
 ---
 
+## Arquivo: `reset_db.py`
+
+```python
+# reset_db.py
+from database.models import reset_db
+
+if __name__ == "__main__":
+    print("\n⚠️ ATENÇÃO ⚠️")
+    print("Você está prestes a APAGAR TODO O BANCO DE DADOS.")
+    print("Esta ação é IRREVERSÍVEL.\n")
+
+    confirm = input("Digite 'RESETAR' para confirmar: ").strip()
+
+    if confirm == "RESETAR":
+        reset_db()
+        print("Banco apagado com sucesso.")
+    else:
+        print("Operação cancelada.")
+```
+
+---
+
 ## Arquivo: `tests/benchmark_pdf_extract.py`
 
 ```python
@@ -695,6 +891,29 @@ def test_benchmark_extraction_speed():
     t1 = time()
 
     assert (t1 - t0) < 1.5  # tempo aceitável para PDFs típicos do IPDO
+```
+
+---
+
+## Arquivo: `tests/test_openai_client_v2.py`
+
+```python
+from core.openai_client_v2 import chamar_gpt_v2
+
+def test_mock_responses_api(monkeypatch):
+    class FakeResp:
+        output_text = '{"ok": true}'
+
+    class FakeClient:
+        def responses(self):
+            return self
+        def create(self, **kwargs):
+            return FakeResp()
+
+    monkeypatch.setattr("core.openai_client_v2.client", FakeClient())
+
+    out = chamar_gpt_v2("teste")
+    assert out["ok"] is True
 ```
 
 ---

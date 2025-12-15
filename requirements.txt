@@ -2,3 +2,5 @@ openai>=1.40.0
 python-dotenv
 PyPDF2>=3.0.0
 pypdfium2==5.1.0
+fastapi
+uvicorn[standard]
