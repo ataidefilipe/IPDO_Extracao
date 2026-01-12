@@ -203,7 +203,7 @@ A API serve para **humanos e sistemas externos**, não para uso interno obrigat�
 
 ---
 
-## US07 — Criar camada de consulta semântica (read-only)
+## US07 — Criar camada de consulta semântica (read-only) - ok
 
 ### Descrição
 

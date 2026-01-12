@@ -20,9 +20,13 @@ Formato de resposta OBRIGATÓRIO:
   "data": "{{DATA_RELATORIO}}",
   "destaques_operacao": [
     {
-      "submercado": "Sul | Sudeste | Nordeste | Norte",
+      "submercado": "Nome EXATO como aparece no texto",
       "geracao": [
-        { "tipo": "Hidráulica | Térmica | Eólica | Solar Fotovoltaica | Nuclear", "status": "Acima | Inferior | Sem desvio", "descricao": "..." }
+        {
+          "tipo": "Hidráulica | Térmica | Eólica | Solar Fotovoltaica | Nuclear",
+          "status": "Acima | Inferior | Sem desvio",
+          "descricao": "..."
+        }
       ],
       "carga": { "status": "Acima | Inferior | Sem desvio", "descricao": "..." },
       "restricoes": [],
@@ -38,18 +42,17 @@ Formato de resposta OBRIGATÓRIO:
 
 Regras obrigatórias:
 - Use exatamente a data {{DATA_RELATORIO}}.
-- Inclua TODOS os submercados citados no texto.
+- Inclua TODOS os submercados citados no texto e preserve o nome.
 - Para geração:
   - Se houver desvio, descreva.
   - Se NÃO houver menção, use "Sem desvio" com descrição curta e neutra.
-- Se não houver restrições, use array vazio [].
+- Se não houver restrições, use [].
 - Se não houver intercâmbio, use:
   {
+    "submercado_origem": null,
+    "submercado_destino": null,
     "status": "Sem desvio",
     "descricao": "Sem intercâmbio relevante no período."
   }
 - Se a seção "Destaques da Operação" NÃO existir, retorne:
-  {
-    "data": "{{DATA_RELATORIO}}",
-    "destaques_operacao": []
-  }
+  { "data": "{{DATA_RELATORIO}}", "destaques_operacao": [] }

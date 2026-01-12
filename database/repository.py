@@ -62,18 +62,69 @@ def salvar_destaques_operacao(data: str, itens: list):
     conn.close()
     log(f"   SUCESSO → {len(itens)} submercado(s) + {total_geracoes} linha(s) de geração salvos para {data}")
 
+def _norm_desvio_status(v) -> str:
+    """
+    Normaliza para o contrato novo:
+      'Acima' | 'Abaixo' | 'Sem desvio'
+    Aceita variações antigas (ex: 'Acima do programado').
+    """
+    if v is None:
+        return "Sem desvio"
+
+    s = str(v).strip().lower()
+    if "acima" in s:
+        return "Acima"
+    if "abaixo" in s:
+        return "Abaixo"
+    return "Sem desvio"
+
+
+def _to_float_or_none(v):
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if not s or s.lower() == "null":
+        return None
+    try:
+        return float(s.replace(",", "."))
+    except Exception:
+        return None
+
+
 def salvar_destaques_termica(data: str, itens: list):
     if not itens:
         log("   Nenhum destaque térmico para salvar")
         return
-    
+
     conn = _get_conn()
     cur = conn.cursor()
-    cur.executemany('''
+
+    rows = []
+    for i in itens:
+        unidade = i.get("unidade_geradora")
+        descricao = i.get("descricao")
+
+        # Campos obrigatórios do banco
+        if not unidade or not descricao:
+            continue
+
+        desvio_mw = _to_float_or_none(i.get("desvio_mw"))
+        desvio_status = _norm_desvio_status(i.get("desvio_status"))
+
+        rows.append((data, unidade, desvio_mw, desvio_status, descricao))
+
+    if not rows:
+        log("   Nenhum destaque térmico válido para salvar (faltando unidade/descricao)")
+        return
+
+    cur.executemany("""
         INSERT OR IGNORE INTO destaques_geracao_termica
-        (data, unidade_geradora, desvio, descricao)
-        VALUES (?, ?, ?, ?)
-    ''', [(data, i["unidade_geradora"], i["desvio"], i["descricao"]) for i in itens])
+            (data, unidade_geradora, desvio_mw, desvio_status, descricao)
+        VALUES (?, ?, ?, ?, ?)
+    """, rows)
+
     conn.commit()
     conn.close()
-    log(f"   SUCESSO → {len(itens)} destaque(s) térmico(s) salvo(s) para {data}")
+    log(f"   SUCESSO → {len(rows)} destaque(s) térmico(s) salvo(s) para {data}")

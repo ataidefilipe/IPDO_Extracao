@@ -1,0 +1,856 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IPDO Chat — Protótipo</title>
+  <style>
+    :root{
+      --bg: #0b1220;
+      --panel: rgba(255,255,255,.06);
+      --panel-2: rgba(255,255,255,.08);
+      --border: rgba(255,255,255,.10);
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.62);
+      --accent: #4f8cff;
+      --accent-2: #2dd4bf;
+      --danger: #ff4f6d;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --radius: 16px;
+      --radius-sm: 12px;
+      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Liberation Sans";
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 20% -20%, rgba(79,140,255,.25), transparent 60%),
+        radial-gradient(900px 500px at 110% 20%, rgba(45,212,191,.18), transparent 55%),
+        radial-gradient(700px 500px at 50% 120%, rgba(255,79,109,.12), transparent 60%),
+        var(--bg);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding: 18px;
+    }
+
+    .app{
+      width: min(1080px, 100%);
+      height: min(760px, calc(100vh - 36px));
+      display:grid;
+      grid-template-columns: 320px 1fr;
+      gap: 14px;
+    }
+
+    /* Left rail */
+    .rail{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+    }
+
+    .rail header{
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(to bottom, rgba(255,255,255,.06), transparent);
+    }
+
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .logo{
+      width: 34px; height:34px;
+      border-radius: 12px;
+      background:
+        radial-gradient(14px 14px at 30% 30%, rgba(255,255,255,.35), transparent 60%),
+        linear-gradient(135deg, rgba(79,140,255,.95), rgba(45,212,191,.75));
+      box-shadow: 0 8px 20px rgba(79,140,255,.18);
+      border: 1px solid rgba(255,255,255,.18);
+    }
+    .brand h1{
+      margin:0;
+      font-size: 14px;
+      letter-spacing: .3px;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+    .brand p{
+      margin:2px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .rail .section{
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .chips{
+      display:flex;
+      flex-wrap:wrap;
+      gap: 8px;
+    }
+    .chip{
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.05);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      cursor:pointer;
+      user-select:none;
+      transition: transform .06s ease, background .12s ease, border-color .12s ease;
+    }
+    .chip:hover{ background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18) }
+    .chip:active{ transform: scale(.98) }
+
+    .meta{
+      display:grid;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .kv{ display:flex; justify-content:space-between; gap: 10px; }
+    .kv b{ color: rgba(255,255,255,.84); font-weight: 600; }
+
+    .btnrow{
+      display:flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .btn{
+      flex:1;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      font-size: 12px;
+      cursor:pointer;
+      transition: background .12s ease, border-color .12s ease;
+    }
+    .btn:hover{ background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.18) }
+    .btn.danger{
+      background: rgba(255,79,109,.12);
+      border-color: rgba(255,79,109,.24);
+      color: rgba(255,255,255,.92);
+    }
+    .btn.danger:hover{ background: rgba(255,79,109,.18); border-color: rgba(255,79,109,.30); }
+
+    .rail footer{
+      margin-top:auto;
+      padding: 12px 16px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .status-pill{
+      display:inline-flex;
+      align-items:center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.05);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .dot{
+      width: 8px; height: 8px;
+      border-radius: 99px;
+      background: rgba(255,255,255,.25);
+      box-shadow: 0 0 0 4px rgba(255,255,255,.04);
+    }
+    .dot.ok{ background: rgba(45,212,191,.95); box-shadow: 0 0 0 4px rgba(45,212,191,.12); }
+    .dot.bad{ background: rgba(255,79,109,.95); box-shadow: 0 0 0 4px rgba(255,79,109,.12); }
+
+    /* Chat */
+    .chat{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      min-width: 0;
+    }
+
+    .chat header{
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 12px;
+      background: linear-gradient(to bottom, rgba(255,255,255,.06), transparent);
+    }
+
+    .chat-title{
+      display:flex;
+      flex-direction:column;
+      gap: 2px;
+      min-width:0;
+    }
+    .chat-title h2{
+      margin:0;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .2px;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .badge{
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(79,140,255,.35);
+      background: rgba(79,140,255,.12);
+      color: rgba(220,235,255,.95);
+      font-weight: 600;
+      white-space:nowrap;
+    }
+    .chat-title p{
+      margin:0;
+      font-size: 12px;
+      color: var(--muted);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .top-actions{
+      display:flex;
+      gap: 8px;
+      align-items:center;
+      flex-shrink:0;
+    }
+    .iconbtn{
+      width: 38px; height: 38px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      cursor:pointer;
+      display:grid;
+      place-items:center;
+      transition: background .12s ease, border-color .12s ease;
+    }
+    .iconbtn:hover{ background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.18) }
+    .iconbtn svg{ width: 18px; height: 18px; opacity:.85 }
+
+    .messages{
+      padding: 16px;
+      overflow:auto;
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
+      scroll-behavior:smooth;
+    }
+
+    .msg{
+      display:flex;
+      gap: 10px;
+      align-items:flex-end;
+      max-width: 820px;
+    }
+    .msg.user{ margin-left:auto; flex-direction:row-reverse; }
+    .avatar{
+      width: 30px; height: 30px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.08);
+      display:grid;
+      place-items:center;
+      flex-shrink:0;
+      box-shadow: 0 6px 16px rgba(0,0,0,.18);
+    }
+    .avatar .a{
+      width: 18px; height:18px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(79,140,255,.85), rgba(45,212,191,.65));
+      opacity:.95;
+    }
+    .avatar.user .a{
+      background: linear-gradient(135deg, rgba(255,255,255,.65), rgba(255,255,255,.20));
+    }
+
+    .bubble{
+      padding: 12px 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.06);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 18px rgba(0,0,0,.20);
+      min-width: 120px;
+      white-space:pre-wrap;
+      line-height: 1.35;
+      font-size: 13px;
+    }
+    .msg.user .bubble{
+      background: rgba(79,140,255,.14);
+      border-color: rgba(79,140,255,.28);
+    }
+
+    .meta-line{
+      display:flex;
+      gap: 10px;
+      align-items:center;
+      margin-top: 6px;
+      color: rgba(255,255,255,.55);
+      font-size: 11px;
+    }
+    .msg.user .meta-line{ justify-content:flex-end; }
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.04);
+    }
+
+    /* typing */
+    .typing{
+      display:none;
+      align-items:center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      padding: 0 16px 12px;
+    }
+    .typing.show{ display:flex; }
+    .dots{
+      display:inline-flex;
+      gap: 4px;
+      align-items:center;
+    }
+    .dots span{
+      width: 6px; height: 6px;
+      border-radius: 99px;
+      background: rgba(255,255,255,.35);
+      animation: bounce 1s infinite ease-in-out;
+    }
+    .dots span:nth-child(2){ animation-delay: .12s; }
+    .dots span:nth-child(3){ animation-delay: .24s; }
+    @keyframes bounce{
+      0%, 80%, 100%{ transform: translateY(0); opacity:.45; }
+      40%{ transform: translateY(-4px); opacity:.95; }
+    }
+
+    /* Composer */
+    .composer{
+      border-top: 1px solid var(--border);
+      padding: 12px 12px;
+      display:flex;
+      gap: 10px;
+      align-items:flex-end;
+      background: linear-gradient(to top, rgba(255,255,255,.06), transparent);
+    }
+    .inputwrap{
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      gap: 8px;
+      min-width:0;
+    }
+    textarea{
+      width:100%;
+      resize:none;
+      min-height: 46px;
+      max-height: 140px;
+      padding: 12px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(0,0,0,.18);
+      color: var(--text);
+      outline:none;
+      font-family: var(--font);
+      font-size: 13px;
+      line-height: 1.3;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.02);
+    }
+    textarea::placeholder{ color: rgba(255,255,255,.45); }
+
+    .hintbar{
+      display:flex;
+      justify-content:space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 11px;
+      padding: 0 2px;
+    }
+
+    .send{
+      width: 46px; height: 46px;
+      border-radius: 14px;
+      border: 1px solid rgba(79,140,255,.32);
+      background: rgba(79,140,255,.18);
+      cursor:pointer;
+      display:grid;
+      place-items:center;
+      transition: transform .06s ease, background .12s ease, border-color .12s ease;
+      flex-shrink:0;
+    }
+    .send:hover{ background: rgba(79,140,255,.24); border-color: rgba(79,140,255,.42) }
+    .send:active{ transform: scale(.98) }
+    .send[disabled]{ opacity:.5; cursor:not-allowed; }
+
+    .send svg{ width: 18px; height: 18px; opacity:.9 }
+
+    /* Responsive */
+    @media (max-width: 940px){
+      .app{
+        grid-template-columns: 1fr;
+        height: calc(100vh - 36px);
+      }
+      .rail{ display:none; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <!-- Left rail (some UX + quick prompts) -->
+    <aside class="rail" aria-label="Painel lateral">
+      <header>
+        <div class="brand">
+          <div class="logo" aria-hidden="true"></div>
+          <div>
+            <h1>IPDO Chat</h1>
+            <p>Protótipo • leitura do SQLite via tools</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="section">
+        <div class="status-pill" id="statusPill" title="Status da conexão">
+          <span class="dot" id="statusDot"></span>
+          <span id="statusText">Desconhecido</span>
+        </div>
+
+        <div class="btnrow">
+          <button class="btn" id="btnPing">Testar API</button>
+          <button class="btn danger" id="btnClear">Limpar chat</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div style="font-size:12px; color: rgba(255,255,255,.84); font-weight:700; margin-bottom:10px;">
+          Perguntas rápidas
+        </div>
+        <div class="chips" id="chips">
+          <div class="chip" data-q="Quais datas existem?">Datas disponíveis</div>
+          <div class="chip" data-q="Como estava o sistema ontem?">Resumo de ontem</div>
+          <div class="chip" data-q="Quais restrições no Nordeste ontem?">Restrições NE</div>
+          <div class="chip" data-q="Teve problema térmico ontem?">Térmicas ontem</div>
+          <div class="chip" data-q="Como estava a geração no Sudeste ontem?">Geração SE</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div style="font-size:12px; color: rgba(255,255,255,.84); font-weight:700; margin-bottom:10px;">
+          Configurações
+        </div>
+        <div class="meta">
+          <div class="kv">
+            <span>TimeZone</span>
+            <b>America/Sao_Paulo</b>
+          </div>
+          <div class="kv">
+            <span>Prefixo AGORA</span>
+            <b>on</b>
+          </div>
+          <div class="kv">
+            <span>Histórico</span>
+            <b>localStorage</b>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        Dica: “Enter” envia • “Shift+Enter” quebra linha
+      </footer>
+    </aside>
+
+    <!-- Main chat -->
+    <main class="chat" aria-label="Chat">
+      <header>
+        <div class="chat-title">
+          <h2>
+            Conversa com o Agente
+            <span class="badge">IPDO • MVP</span>
+          </h2>
+          <p id="subtitle">Conecte sua API e teste intenções + tools (resumo, restrições, térmica, geração).</p>
+        </div>
+
+        <div class="top-actions">
+          <button class="iconbtn" id="btnExport" title="Exportar conversa (JSON)">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 3v10m0 0l-3-3m3 3l3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M4 14v4a3 3 0 003 3h10a3 3 0 003-3v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button class="iconbtn" id="btnScrollBottom" title="Ir para o final">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="messages" id="messages" aria-live="polite"></section>
+
+      <div class="typing" id="typing">
+        <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>Agente digitando…</span>
+      </div>
+
+      <section class="composer">
+        <div class="inputwrap">
+          <textarea id="input" placeholder="Pergunte sobre o IPDO… (ex: “Como estava o sistema ontem?”)"></textarea>
+          <div class="hintbar">
+            <span id="hintLeft">Use datas YYYY-MM-DD ou “hoje/ontem”.</span>
+            <span id="hintRight"><span id="charCount">0</span>/1200</span>
+          </div>
+        </div>
+        <button class="send" id="send" title="Enviar">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M3 11l18-8-8 18-2-7-7-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // ========= CONFIG =========
+    // Ajuste para seu endpoint real (quando você criar).
+    // Sugestão: POST /agent/chat { "message": "..." } => { "answer": "..." }
+    const API_URL = "http://localhost:8000/agent/chat";
+
+    // Se sua API devolver outro formato, ajuste em parseApiResponse()
+    // ==========================
+
+    const elMessages = document.getElementById("messages");
+    const elInput = document.getElementById("input");
+    const elSend = document.getElementById("send");
+    const elTyping = document.getElementById("typing");
+    const elChar = document.getElementById("charCount");
+
+    const elStatusDot = document.getElementById("statusDot");
+    const elStatusText = document.getElementById("statusText");
+    const btnPing = document.getElementById("btnPing");
+    const btnClear = document.getElementById("btnClear");
+    const btnExport = document.getElementById("btnExport");
+    const btnScrollBottom = document.getElementById("btnScrollBottom");
+
+    const STORAGE_KEY = "ipdo_chat_history_v1";
+
+    const state = {
+      messages: loadHistory(),
+      isTyping: false,
+      lastApiOk: null,
+    };
+
+    // --- Time helpers (America/Sao_Paulo) ---
+    function pad2(n){ return String(n).padStart(2,"0"); }
+
+    function nowSaoPaulo(){
+      // Gera "YYYY-MM-DD HH:MM:SS" no fuso America/Sao_Paulo
+      const dt = new Date();
+      const parts = new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }).formatToParts(dt).reduce((acc,p)=>{ acc[p.type]=p.value; return acc; }, {});
+      // parts: {day, month, year, hour, minute, second}
+      return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+    }
+
+    function formatBubbleTime(){
+      // só pra UI (HH:MM)
+      const dt = new Date();
+      const parts = new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+        hour: "2-digit", minute: "2-digit", hour12: false
+      }).formatToParts(dt).reduce((acc,p)=>{ acc[p.type]=p.value; return acc; }, {});
+      return `${parts.hour}:${parts.minute}`;
+    }
+
+    // --- Persistence ---
+    function saveHistory(){
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.messages));
+    }
+    function loadHistory(){
+      try{
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      }catch{
+        return [];
+      }
+    }
+
+    // --- Rendering ---
+    function escapeHtml(s){
+      return (s ?? "").replace(/[&<>"']/g, (m)=>({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+      }[m]));
+    }
+
+    function autolink(text){
+      const safe = escapeHtml(text);
+      return safe.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color: rgba(220,235,255,.95); text-decoration: underline;">$1</a>');
+    }
+
+    function addMessage(role, text, meta = {}){
+      const msg = {
+        id: crypto.randomUUID(),
+        role,
+        text,
+        time: meta.time || formatBubbleTime(),
+        tag: meta.tag || null,
+      };
+      state.messages.push(msg);
+      saveHistory();
+      render();
+      scrollToBottom();
+    }
+
+    function render(){
+      elMessages.innerHTML = "";
+      for(const m of state.messages){
+        const wrap = document.createElement("div");
+        wrap.className = `msg ${m.role}`;
+
+        const avatar = document.createElement("div");
+        avatar.className = `avatar ${m.role}`;
+        const a = document.createElement("div");
+        a.className = "a";
+        avatar.appendChild(a);
+
+        const content = document.createElement("div");
+
+        const bubble = document.createElement("div");
+        bubble.className = "bubble";
+        bubble.innerHTML = autolink(m.text);
+
+        const meta = document.createElement("div");
+        meta.className = "meta-line";
+
+        const pillTime = document.createElement("span");
+        pillTime.className = "pill";
+        pillTime.textContent = m.time;
+
+        meta.appendChild(pillTime);
+
+        if(m.tag){
+          const pillTag = document.createElement("span");
+          pillTag.className = "pill";
+          pillTag.textContent = m.tag;
+          meta.appendChild(pillTag);
+        }
+
+        content.appendChild(bubble);
+        content.appendChild(meta);
+
+        wrap.appendChild(avatar);
+        wrap.appendChild(content);
+
+        elMessages.appendChild(wrap);
+      }
+    }
+
+    function scrollToBottom(){
+      elMessages.scrollTop = elMessages.scrollHeight;
+    }
+
+    function setTyping(on){
+      state.isTyping = on;
+      elTyping.classList.toggle("show", !!on);
+    }
+
+    // --- Status UI ---
+    function setStatus(ok, label){
+      state.lastApiOk = ok;
+      elStatusDot.classList.remove("ok","bad");
+      elStatusDot.classList.add(ok ? "ok" : "bad");
+      elStatusText.textContent = label || (ok ? "API ok" : "API offline");
+    }
+
+    // --- API wire ---
+    function buildPayload(userText){
+      // Prefixo obrigatório pro agente (sem mostrar na UI):
+      const agora = nowSaoPaulo();
+      const message = `[AGORA=${agora}] ${userText}`;
+      return { message };
+    }
+
+    function parseApiResponse(data){
+      // Ajuste aqui conforme seu backend.
+      // Aceita:
+      // { answer: "..." }  OU  { response: "..." }  OU  string
+      if(typeof data === "string") return data;
+      if(data && typeof data.answer === "string") return data.answer;
+      if(data && typeof data.response === "string") return data.response;
+      // fallback:
+      return JSON.stringify(data ?? {}, null, 2);
+    }
+
+    async function callAgent(userText){
+      const payload = buildPayload(userText);
+
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if(!res.ok){
+        const txt = await res.text().catch(()=> "");
+        throw new Error(`HTTP ${res.status} ${res.statusText}${txt ? " — " + txt : ""}`);
+      }
+
+      const data = await res.json().catch(()=>null);
+      return parseApiResponse(data);
+    }
+
+    // --- UX actions ---
+    async function sendMessage(){
+      const raw = (elInput.value || "").trim();
+      if(!raw) return;
+
+      if(raw.length > 1200){
+        addMessage("assistant", "Mensagem muito longa. Reduza para até 1200 caracteres.", { tag: "validação" });
+        return;
+      }
+
+      elInput.value = "";
+      elChar.textContent = "0";
+      elSend.disabled = true;
+
+      addMessage("user", raw);
+
+      setTyping(true);
+
+      try{
+        const answer = await callAgent(raw);
+        setStatus(true, "API ok");
+        addMessage("assistant", answer);
+      }catch(err){
+        setStatus(false, "API offline");
+        // fallback mock (pra não travar o protótipo)
+        const mock = [
+          "Não consegui alcançar a API agora.",
+          "• Verifique se o servidor está rodando",
+          "• Confirme o endpoint em API_URL",
+          "• Confirme CORS no backend",
+          "",
+          "Erro: " + (err?.message || String(err))
+        ].join("\n");
+        addMessage("assistant", mock, { tag: "fallback" });
+      }finally{
+        setTyping(false);
+        elSend.disabled = false;
+        elInput.focus();
+      }
+    }
+
+    async function pingApi(){
+      // Ping simples: faz um POST com pergunta leve
+      try{
+        setTyping(true);
+        const answer = await callAgent("Quais datas existem?");
+        setStatus(true, "API ok");
+        addMessage("assistant", "Ping OK. Exemplo de resposta:\n" + answer, { tag: "ping" });
+      }catch(err){
+        setStatus(false, "API offline");
+        addMessage("assistant", "Ping falhou: " + (err?.message || String(err)), { tag: "ping" });
+      }finally{
+        setTyping(false);
+      }
+    }
+
+    function clearChat(){
+      state.messages = [];
+      saveHistory();
+      render();
+      addMessage("assistant", "Chat limpo. Pode começar de novo. 🙂", { tag: "sistema" });
+    }
+
+    function exportChat(){
+      const blob = new Blob([JSON.stringify(state.messages, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "ipdo_chat_export.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // --- Events ---
+    elSend.addEventListener("click", sendMessage);
+    btnPing.addEventListener("click", pingApi);
+    btnClear.addEventListener("click", clearChat);
+    btnExport.addEventListener("click", exportChat);
+    btnScrollBottom.addEventListener("click", scrollToBottom);
+
+    document.getElementById("chips").addEventListener("click", (e)=>{
+      const chip = e.target.closest(".chip");
+      if(!chip) return;
+      elInput.value = chip.getAttribute("data-q") || "";
+      elChar.textContent = String(elInput.value.length);
+      elInput.focus();
+    });
+
+    elInput.addEventListener("input", ()=>{
+      elChar.textContent = String(elInput.value.length);
+      // auto-grow
+      elInput.style.height = "auto";
+      elInput.style.height = Math.min(elInput.scrollHeight, 140) + "px";
+    });
+
+    elInput.addEventListener("keydown", (e)=>{
+      if(e.key === "Enter" && !e.shiftKey){
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    // --- Boot ---
+    render();
+    if(state.messages.length === 0){
+      addMessage("assistant",
+        "Olá! Eu sou o Agente IPDO.\n\n" +
+        "Pergunte sobre datas, operação, geração, térmicas e restrições.\n" +
+        "Exemplos:\n" +
+        "• Quais datas existem?\n" +
+        "• Como estava o sistema ontem?\n" +
+        "• Quais restrições no Nordeste ontem?\n",
+        { tag: "boas-vindas" }
+      );
+    }
+    setStatus(false, "Desconhecido");
+    scrollToBottom();
+  </script>
+</body>
+</html>

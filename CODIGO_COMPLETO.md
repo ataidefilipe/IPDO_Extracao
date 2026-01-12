@@ -1,8 +1,896 @@
 # Código Completo do Projeto
 
-*Gerado automaticamente em 15/12/2025 às 16:22*
+*Gerado automaticamente em 08/01/2026 às 17:52*
 
-Total de arquivos: 20
+Total de arquivos: 32
+
+---
+
+## Arquivo: `agent_ipdo/__init__.py`
+
+```python
+
+```
+
+---
+
+## Arquivo: `agent_ipdo/agent.py`
+
+```python
+# agent_ipdo/agent.py
+"""
+Agente IPDO (LLM + Tools + SQLite)
+
+✅ Ajustes principais:
+- Implementa o LOOP correto de tool-calling da Responses API:
+  1) modelo pede tool
+  2) executamos tool
+  3) devolvemos function_call_output
+  4) modelo gera resposta FINAL em linguagem natural
+
+- Adiciona tools com filtros (submercado/tipo/status/limite/termo)
+- Logs detalhados e legíveis
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any, Optional
+
+from dotenv import load_dotenv
+from openai import OpenAI
+
+# --- Queries diretas no SQLite (sem depender de FastAPI) ---
+from queries.common import listar_datas as q_listar_datas
+from queries.operacao import buscar_destaques_operacao as q_buscar_operacao
+from queries.termica import buscar_termica_por_desvio as q_buscar_termica
+from queries.geracao import buscar_geracao as q_buscar_geracao
+
+
+# ------------------------------------------------------------------------------
+# Setup
+# ------------------------------------------------------------------------------
+
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+prompt_path = Path(__file__).parent / "system_prompt.txt"
+SYSTEM_PROMPT = prompt_path.read_text(encoding="utf-8")
+
+
+def _log(msg: str):
+    print(f"[AGENT LOG] {msg}")
+
+
+def _safe_json_dumps(obj: Any) -> str:
+    """Converte saída de tool para string JSON estável."""
+    return json.dumps(obj, ensure_ascii=False, default=str)
+
+
+def _normalize_str(v: Any) -> Optional[str]:
+    if v is None:
+        return None
+    if isinstance(v, str):
+        s = v.strip()
+        return s or None
+    return str(v).strip() or None
+
+
+def _normalize_int(v: Any) -> Optional[int]:
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except Exception:
+        return None
+
+
+# ------------------------------------------------------------------------------
+# Tools (funções reais)
+# ------------------------------------------------------------------------------
+
+def tool_listar_datas() -> list[str]:
+    return q_listar_datas()
+
+
+def tool_buscar_operacao(data: str, submercado: str | None = None) -> list[dict]:
+    """
+    Retorna destaques de operação por data.
+    Filtro opcional por submercado (case-insensitive, contém).
+    """
+    data = _normalize_str(data) or ""
+    submercado = _normalize_str(submercado)
+
+    itens = q_buscar_operacao(data)
+
+    if submercado:
+        sm = submercado.lower()
+        itens = [i for i in itens if sm in (i.get("submercado", "").lower())]
+
+    return itens
+
+
+def tool_buscar_geracao(
+    data: str,
+    submercado: str | None = None,
+    tipo: str | None = None,
+    status: str | None = None,
+    limite: int | None = None,
+) -> list[dict]:
+    """
+    Retorna destaques de geração (tabela destaques_geracao) com filtros.
+    - submercado/tipo são filtros direto na query
+    - status é filtro pós-query (porque não existe filtro no SQL da função atual)
+    - limite é aplicado ao final
+    """
+    data = _normalize_str(data) or ""
+    submercado = _normalize_str(submercado)
+    tipo = _normalize_str(tipo)
+    status = _normalize_str(status)
+    limite = _normalize_int(limite)
+
+    itens = q_buscar_geracao(data=data, submercado=submercado, tipo=tipo)
+
+    if status:
+        st = status.lower()
+        itens = [i for i in itens if st == (i.get("status", "") or "").lower()]
+
+    if limite is not None and limite >= 0:
+        itens = itens[:limite]
+
+    return itens
+
+
+def tool_buscar_termica(
+    data: str,
+    limite: int | None = None,
+    unidade: str | None = None,
+    termo: str | None = None,
+) -> list[dict]:
+    """
+    Retorna destaques térmicos por data com filtros opcionais:
+    - limite: aplicado na query
+    - unidade: filtro pós-query (contém, case-insensitive) em unidade_geradora
+    - termo: filtro pós-query (contém, case-insensitive) em descricao
+    """
+    data = _normalize_str(data) or ""
+    limite = _normalize_int(limite)
+    unidade = _normalize_str(unidade)
+    termo = _normalize_str(termo)
+
+    itens = q_buscar_termica(data=data, limite=limite)
+
+    if unidade:
+        u = unidade.lower()
+        itens = [i for i in itens if u in (i.get("unidade_geradora", "").lower())]
+
+    if termo:
+        t = termo.lower()
+        itens = [i for i in itens if t in (i.get("descricao", "").lower())]
+
+    return itens
+
+
+def tool_buscar_restricoes(
+    data: str,
+    submercado: str | None = None,
+    termo: str | None = None,
+    limite: int | None = None,
+) -> list[dict]:
+    """
+    Retorna restrições (strings) extraídas dos destaques de operação.
+    Útil quando usuário pede só "restrições" / "limitações" e quer filtrar por palavra.
+    """
+    data = _normalize_str(data) or ""
+    submercado = _normalize_str(submercado)
+    termo = _normalize_str(termo)
+    limite = _normalize_int(limite)
+
+    itens = tool_buscar_operacao(data=data, submercado=submercado)
+
+    out: list[dict] = []
+    for it in itens:
+        sm = it.get("submercado")
+        for r in (it.get("restricoes") or []):
+            if not isinstance(r, str):
+                continue
+            out.append({"submercado": sm, "restricao": r})
+
+    if termo:
+        tl = termo.lower()
+        out = [x for x in out if tl in (x.get("restricao", "").lower())]
+
+    if limite is not None and limite >= 0:
+        out = out[:limite]
+
+    return out
+
+
+# ------------------------------------------------------------------------------
+# Tool schemas (para o modelo)
+# ------------------------------------------------------------------------------
+
+TOOLS = [
+    {
+        "type": "function",
+        "name": "listar_datas",
+        "description": "Lista as datas disponíveis no banco IPDO (SQLite).",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "buscar_operacao",
+        "description": (
+            "Busca destaques da operação por data. "
+            "Opcionalmente filtra por submercado (ex: 'Nordeste', 'Sudeste', 'Sul', 'Norte')."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "Data no formato YYYY-MM-DD"},
+                "submercado": {"type": "string", "description": "Filtro opcional por submercado"},
+            },
+            "required": ["data"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "buscar_geracao",
+        "description": (
+            "Busca destaques de geração (tabela destaques_geracao) por data, "
+            "com filtros opcionais de submercado, tipo e status. "
+            "Use quando o usuário pedir algo como 'eólica', 'solar', 'hidráulica' etc."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "Data no formato YYYY-MM-DD"},
+                "submercado": {"type": "string", "description": "Filtro opcional (SE, S, NE, N ou nome)"},
+                "tipo": {"type": "string", "description": "Filtro opcional (Hidráulica, Térmica, Eólica, Solar, Nuclear)"},
+                "status": {"type": "string", "description": "Filtro opcional (Acima, Inferior, Sem desvio, etc.)"},
+                "limite": {"type": "integer", "description": "Máximo de itens a retornar (opcional)"},
+            },
+            "required": ["data"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "buscar_termica",
+        "description": (
+            "Busca destaques de geração térmica por data. "
+            "Pode limitar a quantidade (limite) e filtrar por unidade/termo."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "Data no formato YYYY-MM-DD"},
+                "limite": {"type": "integer", "description": "Máximo de itens (opcional)"},
+                "unidade": {"type": "string", "description": "Filtrar por unidade_geradora (contém, opcional)"},
+                "termo": {"type": "string", "description": "Filtrar por palavra na descrição (contém, opcional)"},
+            },
+            "required": ["data"],  # ✅ limite é opcional de verdade
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "buscar_restricoes",
+        "description": (
+            "Busca restrições/limitações reportadas na operação por data, "
+            "com filtros opcionais de submercado e termo (ex: 'eólica', 'solar', 'frequência')."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "Data no formato YYYY-MM-DD"},
+                "submercado": {"type": "string", "description": "Filtro opcional por submercado"},
+                "termo": {"type": "string", "description": "Filtro opcional por palavra/trecho (contém)"},
+                "limite": {"type": "integer", "description": "Máximo de itens (opcional)"},
+            },
+            "required": ["data"],
+            "additionalProperties": False,
+        },
+    },
+]
+
+
+# ------------------------------------------------------------------------------
+# Dispatcher de tools
+# ------------------------------------------------------------------------------
+
+def _executar_tool(nome: str, args: dict) -> Any:
+    """Executa uma tool e retorna um objeto serializável."""
+    if nome == "listar_datas":
+        return tool_listar_datas()
+
+    if nome == "buscar_operacao":
+        data = _normalize_str(args.get("data"))
+        if not data:
+            return {"erro": "Parâmetro 'data' é obrigatório (YYYY-MM-DD)."}
+        return tool_buscar_operacao(data=data, submercado=args.get("submercado"))
+
+    if nome == "buscar_geracao":
+        data = _normalize_str(args.get("data"))
+        if not data:
+            return {"erro": "Parâmetro 'data' é obrigatório (YYYY-MM-DD)."}
+        return tool_buscar_geracao(
+            data=data,
+            submercado=args.get("submercado"),
+            tipo=args.get("tipo"),
+            status=args.get("status"),
+            limite=args.get("limite"),
+        )
+
+    if nome == "buscar_termica":
+        data = _normalize_str(args.get("data"))
+        if not data:
+            return {"erro": "Parâmetro 'data' é obrigatório (YYYY-MM-DD)."}
+        return tool_buscar_termica(
+            data=data,
+            limite=args.get("limite"),
+            unidade=args.get("unidade"),
+            termo=args.get("termo"),
+        )
+
+    if nome == "buscar_restricoes":
+        data = _normalize_str(args.get("data"))
+        if not data:
+            return {"erro": "Parâmetro 'data' é obrigatório (YYYY-MM-DD)."}
+        return tool_buscar_restricoes(
+            data=data,
+            submercado=args.get("submercado"),
+            termo=args.get("termo"),
+            limite=args.get("limite"),
+        )
+
+    return {"erro": f"Tool desconhecida: {nome}"}
+
+
+# ------------------------------------------------------------------------------
+# Loop do agente (Responses API)
+# ------------------------------------------------------------------------------
+
+def responder_pergunta(pergunta: str) -> str:
+    """
+    Executa o loop de tool-calling até obter resposta final em linguagem natural.
+    """
+    if not client.api_key:
+        return "[ERRO] OPENAI_API_KEY não encontrada no ambiente/.env"
+
+    _log(f"Pergunta recebida: {pergunta}")
+
+    # input é uma lista de itens (mensagens + outputs da API)
+    input_items: list[Any] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": pergunta},
+    ]
+
+    max_turnos = 6
+
+    for turno in range(1, max_turnos + 1):
+        _log(f"--- Turno {turno}/{max_turnos}: chamando Responses API ---")
+
+        response = client.responses.create(
+            model="gpt-5.2",
+            input=input_items,
+            tools=TOOLS,
+            tool_choice="auto",
+        )
+
+        # Log “resumo” do retorno
+        _log(f"Response status={getattr(response, 'status', None)} id={getattr(response, 'id', None)}")
+        _log(f"Output_text(len)={len(getattr(response, 'output_text', '') or '')}")
+
+        # IMPORTANTÍSSIMO: manter histórico do que o modelo retornou
+        if getattr(response, "output", None):
+            input_items += response.output
+
+        # Verifica tool calls
+        tool_calls = []
+        for idx, item in enumerate(getattr(response, "output", []) or []):
+            _log(f"[output#{idx}] type={getattr(item, 'type', None)}")
+            if getattr(item, "type", None) == "function_call":
+                tool_calls.append(item)
+
+        # Se não tem tool call, é a resposta final
+        if not tool_calls:
+            final = (getattr(response, "output_text", None) or "").strip()
+            if final:
+                _log("Resposta final em linguagem natural gerada (sem tool calls).")
+                return final
+
+            # fallback: tenta coletar mensagem manualmente
+            _log("[WARN] Sem tool calls, mas output_text vazio. Tentando extrair manualmente...")
+            textos = []
+            for item in getattr(response, "output", []) or []:
+                if getattr(item, "type", None) == "message":
+                    for c in getattr(item, "content", []) or []:
+                        if getattr(c, "type", None) in ("output_text", "text"):
+                            textos.append(getattr(c, "text", "") or "")
+            final2 = "\n".join([t for t in textos if t]).strip()
+            return final2 or "Não foi possível interpretar a resposta do modelo."
+
+        # Executa cada tool call e devolve output para o modelo
+        _log(f"{len(tool_calls)} tool call(s) detectada(s). Executando...")
+
+        for call in tool_calls:
+            nome = getattr(call, "name", "")
+            raw_args = getattr(call, "arguments", "") or ""
+            call_id = getattr(call, "call_id", None)
+
+            _log(f"Tool call → name={nome} call_id={call_id}")
+            _log(f"Tool args(raw)={raw_args}")
+
+            try:
+                args = json.loads(raw_args) if raw_args else {}
+            except Exception:
+                args = {}
+
+            _log(f"Tool args(parsed)={args}")
+
+            try:
+                result = _executar_tool(nome, args)
+            except Exception as e:
+                _log(f"[ERRO] Falha executando tool '{nome}': {e}")
+                result = {"erro": f"Falha executando tool '{nome}': {str(e)}"}
+
+            result_json = _safe_json_dumps(result)
+            _log(f"Tool result(len)={len(result_json)}")
+
+            # Devolve o output pro modelo (continua o loop)
+            input_items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": result_json,
+                }
+            )
+
+    return "Não foi possível completar a solicitação (muitas iterações de ferramenta)."
+```
+
+---
+
+## Arquivo: `agent_ipdo/cli.py`
+
+```python
+# agent/cli.py
+from agent_ipdo.agent import responder_pergunta
+from datetime import datetime
+import pytz
+
+
+
+if __name__ == "__main__":
+    print("\n🧠 Agente IPDO (digite 'sair' para encerrar)\n")
+
+    while True:
+        tz = pytz.timezone("America/Sao_Paulo")
+        agora = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+        
+        pergunta = input("Pergunta: ").strip()
+        if pergunta.lower() in ("sair", "exit", "quit"):
+            break
+        
+        entrada = f"[AGORA={agora}] {pergunta}"
+
+        resposta = responder_pergunta(entrada)
+        print("\nResposta:")
+        print(resposta)
+        print("-" * 50)
+```
+
+---
+
+## Arquivo: `agent_ipdo/tools.py`
+
+```python
+# agent/tools.py
+from queries.common import listar_datas
+from queries.operacao import buscar_destaques_operacao
+from queries.termica import buscar_termica_por_desvio
+
+def tool_listar_datas():
+    return listar_datas()
+
+def tool_buscar_operacao(data: str):
+    return buscar_destaques_operacao(data)
+
+def tool_buscar_termica(data: str, limite: int | None = None):
+    return buscar_termica_por_desvio(data, limite)
+```
+
+---
+
+## Arquivo: `api/__init__.py`
+
+```python
+
+```
+
+---
+
+## Arquivo: `api/deps.py`
+
+```python
+# api/deps.py
+import sqlite3
+from config.settings import DB_PATH
+
+def get_db():
+    """
+    Dependency FastAPI para obter conexão SQLite.
+    Read-only neste MVP.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+```
+
+---
+
+## Arquivo: `api/main.py`
+
+```python
+# api/main.py
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from api.routers import datas, operacao, geracao, termica
+
+app = FastAPI(
+    title="IPDO API",
+    description="""
+API de consulta aos destaques do IPDO (ONS).
+
+Esta API expõe dados já processados a partir dos relatórios IPDO,
+sem realizar extração de PDF ou chamadas a LLM.
+
+🔹 Escopo MVP  
+🔹 Somente leitura  
+🔹 Sem autenticação
+""",
+    version="0.1.0 (MVP)"
+)
+
+# ---------------------------------------------------------
+# CORS (aberto para MVP)
+# ---------------------------------------------------------
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # MVP → liberar geral
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------------------------------------------------------
+# Routers
+# ---------------------------------------------------------
+
+app.include_router(datas.router)
+app.include_router(operacao.router)
+app.include_router(geracao.router)
+app.include_router(termica.router)
+
+# ---------------------------------------------------------
+# Health-check
+# ---------------------------------------------------------
+
+@app.get("/health")
+def health_check():
+    """
+    Health-check da API.
+
+    Retorna apenas se o serviço está ativo.
+    Não acessa banco nem GPT.
+    """
+    return {"status": "ok"}
+```
+
+---
+
+## Arquivo: `api/routers/datas.py`
+
+```python
+# api/routers/datas.py
+from fastapi import APIRouter, Depends
+import sqlite3
+from api.deps import get_db
+
+router = APIRouter(
+    prefix="/datas",
+    tags=["Datas"]
+)
+
+@router.get("")
+def listar_datas(db: sqlite3.Connection = Depends(get_db)):
+    """
+    Retorna todas as datas disponíveis no banco de dados.
+
+    As datas são retornadas em ordem decrescente (mais recente primeiro).
+    """
+
+    cursor = db.cursor()
+
+    cursor.execute("""
+        SELECT DISTINCT data
+        FROM destaques_operacao
+        ORDER BY data DESC
+    """)
+
+    datas = [row["data"] for row in cursor.fetchall()]
+
+    return {"datas": datas}
+```
+
+---
+
+## Arquivo: `api/routers/geracao.py`
+
+```python
+# api/routers/geracao.py
+from fastapi import APIRouter, Depends, Query, HTTPException
+import sqlite3
+from api.deps import get_db
+
+router = APIRouter(
+    prefix="/geracao",
+    tags=["Geração"]
+)
+
+@router.get("")
+def consultar_geracao(
+    data: str = Query(..., description="Data no formato YYYY-MM-DD"),
+    submercado: str | None = Query(None, description="SE, S, NE, N"),
+    tipo: str | None = Query(None, description="Hidráulica, Térmica, Eólica, Solar, Nuclear"),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """
+    Consulta geração por data, com filtros opcionais de submercado e tipo.
+    """
+
+    cur = db.cursor()
+
+    # -------------------------
+    # 1. Montar SQL dinâmico
+    # -------------------------
+    sql = """
+        SELECT data, submercado, tipo_geracao, status, descricao
+        FROM destaques_geracao
+        WHERE data = ?
+    """
+    params = [data]
+
+    if submercado:
+        sql += " AND submercado = ?"
+        params.append(submercado)
+
+    if tipo:
+        sql += " AND tipo_geracao = ?"
+        params.append(tipo)
+
+    sql += " ORDER BY submercado, tipo_geracao"
+
+    # -------------------------
+    # 2. Executar consulta
+    # -------------------------
+    cur.execute(sql, params)
+    rows = cur.fetchall()
+
+    # -------------------------
+    # 3. Data inválida (nenhum registro no dia)
+    # -------------------------
+    if not rows:
+        # checa se a data existe no banco
+        cur.execute(
+            "SELECT 1 FROM destaques_geracao WHERE data = ? LIMIT 1",
+            (data,)
+        )
+        existe = cur.fetchone()
+        if not existe:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Nenhum dado de geração encontrado para {data}"
+            )
+
+    # -------------------------
+    # 4. Montar resposta
+    # -------------------------
+    geracao = [
+        {
+            "submercado": row["submercado"],
+            "tipo": row["tipo_geracao"],
+            "status": row["status"],
+            "descricao": row["descricao"]
+        }
+        for row in rows
+    ]
+
+    return {
+        "data": data,
+        "filtros": {
+            "submercado": submercado,
+            "tipo": tipo
+        },
+        "geracao": geracao
+    }
+```
+
+---
+
+## Arquivo: `api/routers/operacao.py`
+
+```python
+# api/routers/operacao.py
+from fastapi import APIRouter, Depends, HTTPException
+import sqlite3
+import json
+from api.deps import get_db
+
+router = APIRouter(
+    prefix="/operacao",
+    tags=["Operação"]
+)
+
+@router.get("/{data}",
+    summary="Destaques da operação por data",
+    description="Retorna carga, restrições, intercâmbio e geração por submercado."
+)
+def obter_destaques_operacao(
+    data: str,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """
+    Retorna os destaques da operação por data.
+    """
+
+    cur = db.cursor()
+
+    # -------------------------
+    # 1. Buscar operação
+    # -------------------------
+    cur.execute("""
+        SELECT *
+        FROM destaques_operacao
+        WHERE data = ?
+        ORDER BY submercado
+    """, (data,))
+
+    rows = cur.fetchall()
+
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Nenhum destaque de operação encontrado para {data}"
+        )
+
+    # -------------------------
+    # 2. Montar resposta
+    # -------------------------
+    destaques = []
+
+    for row in rows:
+        submercado = row["submercado"]
+
+        # Buscar geração por submercado
+        cur.execute("""
+            SELECT tipo_geracao, status, descricao
+            FROM destaques_geracao
+            WHERE data = ? AND submercado = ?
+            ORDER BY tipo_geracao
+        """, (data, submercado))
+
+        geracoes = [
+            {
+                "tipo": g["tipo_geracao"],
+                "status": g["status"],
+                "descricao": g["descricao"]
+            }
+            for g in cur.fetchall()
+        ]
+
+        destaques.append({
+            "submercado": submercado,
+            "carga": {
+                "status": row["carga_status"],
+                "descricao": row["carga_descricao"]
+            },
+            "restricoes": json.loads(row["restricoes"]) if row["restricoes"] else [],
+            "transferencia_energia": {
+                "submercado_origem": row["transferencia_origem"],
+                "submercado_destino": row["transferencia_destino"],
+                "status": row["transferencia_status"],
+                "descricao": row["transferencia_descricao"]
+            },
+            "geracao": geracoes
+        })
+
+    return {
+        "data": data,
+        "destaques_operacao": destaques
+    }
+```
+
+---
+
+## Arquivo: `api/routers/termica.py`
+
+```python
+# api/routers/termica.py
+from fastapi import APIRouter, Depends, HTTPException
+import sqlite3
+from api.deps import get_db
+
+router = APIRouter(
+    prefix="/termica",
+    tags=["Geração Térmica"]
+)
+
+@router.get("/{data}")
+def obter_destaques_termica(
+    data: str,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """
+    Retorna os destaques de geração térmica por data.
+    """
+
+    cur = db.cursor()
+
+    # -------------------------
+    # 1. Verificar se a data existe no banco
+    # -------------------------
+    cur.execute(
+        "SELECT 1 FROM destaques_operacao WHERE data = ? LIMIT 1",
+        (data,)
+    )
+    existe_data = cur.fetchone()
+
+    if not existe_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Nenhum dado encontrado para a data {data}"
+        )
+
+    # -------------------------
+    # 2. Buscar destaques térmicos
+    # -------------------------
+    cur.execute("""
+        SELECT unidade_geradora, desvio, descricao
+        FROM destaques_geracao_termica
+        WHERE data = ?
+        ORDER BY desvio DESC
+    """, (data,))
+
+    rows = cur.fetchall()
+
+    destaques = [
+        {
+            "unidade_geradora": row["unidade_geradora"],
+            "desvio": row["desvio"],
+            "descricao": row["descricao"]
+        }
+        for row in rows
+    ]
+
+    return {
+        "data": data,
+        "destaques_geracao_termica": destaques
+    }
+```
 
 ---
 
@@ -855,6 +1743,295 @@ if __name__ == "__main__":
 
 ---
 
+## Arquivo: `queries/common.py`
+
+```python
+# queries/common.py
+import sqlite3
+from config.settings import DB_PATH
+
+def listar_datas() -> list[str]:
+    """
+    Retorna todas as datas processadas e existentes no banco.
+
+    Returns:
+        list[str]: Lista de datas no formato YYYY-MM-DD, ordenadas
+                   do mais recente para o mais antigo.
+                   Retorna lista vazia se não houver registros.
+
+    Comportamento:
+        ✔ Nunca lança erro se o banco estiver vazio
+        ✔ Não duplica datas
+        ✔ Ordena decrescente no SQL
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT DISTINCT data
+            FROM destaques_operacao
+            ORDER BY data DESC
+        """)
+        datas = [row["data"] for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+    return datas
+```
+
+---
+
+## Arquivo: `queries/geracao.py`
+
+```python
+# queries/geracao.py
+import sqlite3
+from config.settings import DB_PATH
+
+
+def buscar_geracao(
+    data: str,
+    submercado: str | None = None,
+    tipo: str | None = None
+) -> list[dict]:
+    """
+    Consulta geração para uma data específica, com filtros opcionais.
+
+    Args:
+        data (str): Data no formato YYYY-MM-DD
+        submercado (str | None): SE, S, NE, N (opcional)
+        tipo (str | None): Hidráulica, Térmica, Eólica, Solar, Nuclear (opcional)
+
+    Returns:
+        list[dict]: Cada item inclui:
+            - submercado
+            - tipo
+            - status
+            - descricao
+
+        Retorna lista vazia se nenhum registro corresponder.
+    """
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    try:
+        # -------------------------
+        # 1. SQL com filtros opcionais
+        # -------------------------
+        sql = """
+            SELECT data, submercado, tipo_geracao, status, descricao
+            FROM destaques_geracao
+            WHERE data = ?
+        """
+        params = [data]
+
+        if submercado:
+            sql += " AND submercado = ?"
+            params.append(submercado)
+
+        if tipo:
+            sql += " AND tipo_geracao = ?"
+            params.append(tipo)
+
+        sql += " ORDER BY submercado, tipo_geracao"
+
+        # -------------------------
+        # 2. Execução e mapeamento
+        # -------------------------
+        cur.execute(sql, params)
+
+        resultados = [
+            {
+                "submercado": row["submercado"],
+                "tipo": row["tipo_geracao"],
+                "status": row["status"],
+                "descricao": row["descricao"]
+            }
+            for row in cur.fetchall()
+        ]
+
+        return resultados
+
+    finally:
+        conn.close()
+```
+
+---
+
+## Arquivo: `queries/operacao.py`
+
+```python
+# queries/operacao.py
+import sqlite3
+import json
+from config.settings import DB_PATH
+
+
+def buscar_destaques_operacao(data: str) -> list[dict]:
+    """
+    Retorna os destaques da operação para uma data específica.
+
+    Args:
+        data (str): Data no formato YYYY-MM-DD.
+
+    Returns:
+        list[dict]: Lista de destaques por submercado, contendo:
+            - submercado (str) — SEMPRE presente
+            - carga: {status, descricao}
+            - restricoes (list[str])
+            - transferencia_energia: {submercado_origem, submercado_destino, status, descricao}
+            - geracao (list[dict]) — tipo, status, descricao
+
+        Retorna uma lista vazia caso não exista nenhum dado para a data.
+    """
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    try:
+        # -------------------------
+        # 1. Buscar destaques operacionais do dia
+        # -------------------------
+        cur.execute("""
+            SELECT *
+            FROM destaques_operacao
+            WHERE data = ?
+            ORDER BY submercado
+        """, (data,))
+
+        oper_rows = cur.fetchall()
+
+        # Sem operação naquele dia → lista vazia
+        if not oper_rows:
+            return []
+
+        resultados = []
+
+        # -------------------------
+        # 2. Iterar por submercado e buscar geração associada
+        # -------------------------
+        for row in oper_rows:
+            submercado = row["submercado"]
+
+            # Buscar geração por submercado
+            cur.execute("""
+                SELECT tipo_geracao, status, descricao
+                FROM destaques_geracao
+                WHERE data = ? AND submercado = ?
+                ORDER BY tipo_geracao
+            """, (data, submercado))
+
+            geracoes = [
+                {
+                    "tipo": g["tipo_geracao"],
+                    "status": g["status"],
+                    "descricao": g["descricao"]
+                }
+                for g in cur.fetchall()
+            ]
+
+            # Garantia de consistência de campos
+            resultados.append({
+                "submercado": submercado,
+                "carga": {
+                    "status": row["carga_status"],
+                    "descricao": row["carga_descricao"]
+                },
+                "restricoes": json.loads(row["restricoes"]) if row["restricoes"] else [],
+                "transferencia_energia": {
+                    "submercado_origem": row["transferencia_origem"],
+                    "submercado_destino": row["transferencia_destino"],
+                    "status": row["transferencia_status"],
+                    "descricao": row["transferencia_descricao"]
+                },
+                "geracao": geracoes
+            })
+
+        return resultados
+
+    finally:
+        conn.close()
+```
+
+---
+
+## Arquivo: `queries/termica.py`
+
+```python
+# queries/termica.py
+import sqlite3
+from config.settings import DB_PATH
+
+
+def buscar_termica_por_desvio(
+    data: str,
+    limite: int | None = None
+) -> list[dict]:
+    """
+    Retorna destaques térmicos para uma data específica, ordenados
+    por desvio em ordem decrescente.
+
+    Args:
+        data (str): Data no formato YYYY-MM-DD.
+        limite (int | None): Número máximo de resultados a retornar (opcional).
+
+    Returns:
+        list[dict]: Cada item contém:
+            - unidade_geradora (str)
+            - desvio (float ou int convertido pelo SQLite)
+            - descricao (str)
+
+        Retorna lista vazia se não houver destaques térmicos para a data.
+        Nunca lança exceção se o resultado estiver vazio.
+    """
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    try:
+        # -------------------------
+        # 1. Montagem da query
+        # -------------------------
+        sql = """
+            SELECT unidade_geradora, desvio, descricao
+            FROM destaques_geracao_termica
+            WHERE data = ?
+            ORDER BY desvio DESC
+        """
+        params = [data]
+
+        if limite is not None:
+            sql += " LIMIT ?"
+            params.append(limite)
+
+        # -------------------------
+        # 2. Execução e mapeamento
+        # -------------------------
+        cur.execute(sql, params)
+
+        resultados = [
+            {
+                "unidade_geradora": row["unidade_geradora"],
+                "desvio": row["desvio"],
+                "descricao": row["descricao"]
+            }
+            for row in cur.fetchall()
+        ]
+
+        return resultados
+
+    finally:
+        conn.close()
+```
+
+---
+
 ## Arquivo: `reset_db.py`
 
 ```python
@@ -873,82 +2050,6 @@ if __name__ == "__main__":
         print("Banco apagado com sucesso.")
     else:
         print("Operação cancelada.")
-```
-
----
-
-## Arquivo: `tests/benchmark_pdf_extract.py`
-
-```python
-from core.pdf_extractor_v2 import extrair_texto
-from time import time
-from pathlib import Path
-
-def test_benchmark_extraction_speed():
-    pdf = Path("tests/pdfs/exemplo1.pdf")
-    t0 = time()
-    extrair_texto(pdf)
-    t1 = time()
-
-    assert (t1 - t0) < 1.5  # tempo aceitável para PDFs típicos do IPDO
-```
-
----
-
-## Arquivo: `tests/test_openai_client_v2.py`
-
-```python
-from core.openai_client_v2 import chamar_gpt_v2
-
-def test_mock_responses_api(monkeypatch):
-    class FakeResp:
-        output_text = '{"ok": true}'
-
-    class FakeClient:
-        def responses(self):
-            return self
-        def create(self, **kwargs):
-            return FakeResp()
-
-    monkeypatch.setattr("core.openai_client_v2.client", FakeClient())
-
-    out = chamar_gpt_v2("teste")
-    assert out["ok"] is True
-```
-
----
-
-## Arquivo: `tests/test_pdf_extractor_v2.py`
-
-```python
-from core.pdf_extractor_v2 import extrair_texto
-from pathlib import Path
-
-def test_extração_pdf_simples():
-    pdf = Path("tests/pdfs/exemplo1.pdf")
-    texto = extrair_texto(pdf)
-
-    assert isinstance(texto, str)
-    assert len(texto) > 10  # texto mínimo
-    assert "IPDO" in texto or len(texto) > 50
-
-
-def test_extração_pdf_multiplas_paginas():
-    pdf = Path("tests/pdfs/exemplo2.pdf")
-    texto = extrair_texto(pdf)
-
-    assert "\n" in texto  # mais de uma página deve gerar contatos
-    assert len(texto.splitlines()) > 5
-
-
-def test_pdf_corrompido_retornar_erro():
-    pdf = Path("tests/pdfs/corrompido.pdf")
-
-    try:
-        extrair_texto(pdf)
-        assert False, "Era esperado erro ao abrir PDF corrompido"
-    except RuntimeError:
-        assert True
 ```
 
 ---

@@ -41,11 +41,12 @@ def mostrar_resumo():
 
         print("\nDestaques Térmicos:")
         df_term = pd.read_sql_query("""
-            SELECT unidade_geradora, desvio, substr(descricao, 1, 80) || '...' as descricao
-            FROM destaques_geracao_termica 
-            WHERE data = ? 
-            ORDER BY desvio DESC
+            SELECT unidade_geradora, desvio_mw, desvio_status, substr(descricao, 1, 80) || '...' as descricao
+            FROM destaques_geracao_termica
+            WHERE data = ?
+            ORDER BY (desvio_mw IS NULL) ASC, desvio_mw DESC
         """, conn, params=(ultimo_dia,))
+
         if len(df_term) == 0:
             print("   Nenhum destaque térmico neste dia")
         else:

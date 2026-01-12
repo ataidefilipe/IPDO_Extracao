@@ -12,7 +12,7 @@ Texto analisado:
 {{TEXTO_EXTRAIDO}}
 
 Tarefa:
-Extraia APENAS os "Destaques de Geração Térmica" ou "Desvios de Geração Térmica" presentes no texto.
+Extraia APENAS os "Destaques da Geração Térmica" / "Desvios de Geração Térmica" presentes no texto.
 
 Formato de resposta OBRIGATÓRIO:
 
@@ -20,19 +20,21 @@ Formato de resposta OBRIGATÓRIO:
   "data": "{{DATA_RELATORIO}}",
   "destaques_geracao_termica": [
     {
-      "unidade_geradora": "Nome da Usina (Concessionária)",
-      "desvio": "Acima do programado | Abaixo do programado | Sem desvio",
+      "unidade_geradora": "Nome EXATO como no texto",
+      "desvio_mw": 123.4,
+      "desvio_status": "Acima | Abaixo | Sem desvio",
       "descricao": "Descrição fiel e concisa do desvio"
     }
   ]
 }
 
 Regras obrigatórias:
-- Liste TODAS as unidades térmicas que apresentarem desvio.
-- Use exatamente os valores permitidos para o campo "desvio".
+- Liste TODAS as unidades térmicas citadas com desvio.
+- "desvio_mw" deve ser número (MW). Se o texto não trouxer MW explicitamente, use null.
+- "desvio_status" deve ser apenas: "Acima" | "Abaixo" | "Sem desvio".
 - Não altere nomes das usinas.
 - Se NÃO houver destaques térmicos no texto, retorne:
-  {
-    "data": "{{DATA_RELATORIO}}",
-    "destaques_geracao_termica": []
-  }
+{
+  "data": "{{DATA_RELATORIO}}",
+  "destaques_geracao_termica": []
+}

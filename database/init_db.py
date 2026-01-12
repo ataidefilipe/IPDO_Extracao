@@ -54,7 +54,8 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             data TEXT NOT NULL,
             unidade_geradora TEXT NOT NULL,
-            desvio TEXT NOT NULL,
+            desvio_mw REAL NULL,
+            desvio_status TEXT NOT NULL,
             descricao TEXT NOT NULL,
             UNIQUE(data, unidade_geradora, descricao)
         )
